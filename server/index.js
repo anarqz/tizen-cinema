@@ -540,6 +540,37 @@ async function torrents() {
   };
 }
 
+// Was this torrent imported by Sonarr/Radarr? Looked up in their history by download id (= torrent hash).
+// state: imported | partial | pending | none (not a Sonarr/Radarr download). Cached 20 s (detail polls every 2 s).
+async function importInfo(hash) {
+  return cached(`import:${hash}`, 20e3, async () => {
+    const id = hash.toUpperCase();
+    for (const svc of ['sonarr', 'radarr']) {
+      if (!has(svc)) continue;
+      const h = await arr(svc, `/api/v3/history?page=1&pageSize=250&downloadId=${id}${svc === 'sonarr' ? '&includeEpisode=true' : ''}`).catch(() => null);
+      const recs = (h && h.records) || [];
+      if (!recs.length) continue;
+      const lib = await library().catch(() => null);
+      const imported = recs.filter((r) => r.eventType === 'downloadFolderImported');
+      const failed = recs.some((r) => r.eventType === 'downloadFailed');
+      const last = imported.length ? imported.map((r) => r.date).sort().pop() : null;
+      if (svc === 'sonarr') {
+        const s = lib && lib.seriesById.get(recs[0].seriesId);
+        const want = new Set(recs.filter((r) => r.eventType === 'grabbed').map((r) => r.episodeId));
+        const got = new Set(imported.map((r) => r.episodeId));
+        const expected = Math.max(want.size, got.size);
+        const seasons = [...new Set(recs.map((r) => r.episode && r.episode.seasonNumber).filter((n) => n != null))].sort((a, b) => a - b);
+        return { svc, type: 'show', tmdb: s ? s.tmdbId : null, title: s ? s.title : null, seasons, imported: got.size, expected, date: last, failed,
+          state: got.size && got.size >= expected ? 'imported' : got.size ? 'partial' : 'pending' };
+      }
+      const m = lib && lib.moviesById.get(recs[0].movieId);
+      return { svc, type: 'movie', tmdb: m ? m.tmdbId : null, title: m ? m.title : null, imported: imported.length ? 1 : 0, expected: 1, date: last, failed,
+        state: imported.length ? 'imported' : 'pending' };
+    }
+    return { state: 'none' };
+  }, { persist: false });
+}
+
 async function torrentDetail(hash) {
   if (!isHash(hash)) throw new HttpError(400, 'Invalid torrent id');
   await delugeEnsureConnected();
@@ -548,6 +579,7 @@ async function torrentDetail(hash) {
   if (!t || !t.name) throw new HttpError(404, 'Torrent not found');
   return {
     ...torrentRow(hash, t),
+    import: await importInfo(hash).catch(() => ({ state: 'unknown' })),
     uploaded: t.total_uploaded, downloaded: t.all_time_download, seedingTime: t.seeding_time, activeTime: t.active_time,
     completed: t.completed_time > 0 ? t.completed_time : null, limitUp: t.max_upload_speed, finished: t.is_finished,
     files: (t.files || []).map((f, i) => ({ path: f.path, size: f.size, progress: Math.round(((t.file_progress || [])[i] || 0) * 1000) / 10,
@@ -569,7 +601,12 @@ async function torrentAction(hash, action, body) {
     case 'reannounce': await deluge('core.force_reannounce', [ids]); break;
     case 'top': case 'up': case 'down': case 'bottom': await deluge('core.queue_' + action, [ids]); break;
     case 'limit': await deluge('core.set_torrent_options', [ids, { max_download_speed: Number(body.down) > 0 ? Number(body.down) : -1 }]); break;
-    case 'remove': await deluge('core.remove_torrent', [hash, !!body.withData]); log('removed torrent', hash, body.withData ? '(with data)' : ''); break;
+    case 'remove':
+      if (body.withData && !body.force) {
+        const imp = await importInfo(hash).catch(() => ({ state: 'unknown' }));
+        if (imp.state === 'pending' || imp.state === 'partial') throw new HttpError(409, 'Not imported yet: deleting the files would lose this download', 'not_imported');
+      }
+      await deluge('core.remove_torrent', [hash, !!body.withData]); log('removed torrent', hash, body.withData ? '(with data)' : ''); break;
     default: throw new HttpError(400, 'Unsupported action');
   }
   return { ok: true };

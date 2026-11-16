@@ -533,3 +533,12 @@ html.playing #backdrop, html.playing body > .scrim, html.playing #rail, html.pla
 .season-card.dl .dl-pct { z-index: 2; margin-top: -60px; }
 .card.dl .mini-logo, .card.dl .mini-title, .card.dl .dot, .card.dl .badge, .card.dl .dl-pct { z-index: 1; }
 .tp-sec[data-sec="seasons"] { height: 470px; }
+
+/* torrent detail: import status */
+.imp-box { margin: -14px 0 24px; padding: 14px 18px; border-radius: 10px; border-left: 5px solid; background: rgba(255,255,255,.06); }
+.imp-box.ok { border-color: #2fbf71; }
+.imp-box.warn { border-color: #f0a020; }
+.imp-box .imp-t { font-size: 23px; font-weight: 700; }
+.imp-box.ok .imp-t { color: #6be3a0; }
+.imp-box.warn .imp-t { color: #ffc35c; }
+.imp-box .imp-s { font-size: 19px; color: rgba(255,255,255,.7); margin-top: 4px; }

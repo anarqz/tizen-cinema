@@ -855,10 +855,29 @@
         var d = this.d;
         return [d.state === 'Paused' ? { id: 'resume', label: '▶  ' + t('tor.resume') } : { id: 'pause', label: '❚❚  ' + t('tor.pause') },
           { id: 'recheck', label: '⟳  ' + t('tor.recheck') }, { id: 'reannounce', label: '↻  ' + t('tor.reannounce') },
-          { id: 'top', label: '⤒  ' + t('tor.top') }, { id: 'limit', label: '↓  ' + t('tor.limit', { v: limitLabel(d.limitDown) }) },
-          { id: 'remove', label: t('tor.remove'), danger: true }, { id: 'removeData', label: t('tor.removeData'), danger: true }];
+          { id: 'top', label: '⤒  ' + t('tor.top') }, { id: 'limit', label: '↓  ' + t('tor.limit', { v: limitLabel(d.limitDown) }) }]
+          .concat(d.import && d.import.tmdb ? [{ id: 'open', label: '→  ' + t(d.import.type === 'show' ? 'tor.openShow' : 'tor.openMovie') }] : [])
+          .concat([{ id: 'remove', label: t('tor.remove'), danger: true }, { id: 'removeData', label: t('tor.removeData'), danger: true }]);
       },
       list: function () { return this.tab === 0 ? this.d.files : this.d.peerList; },
+      // Imported by Sonarr/Radarr? Their library copy is separate, so only then is "Remove + files" harmless.
+      importBox: function () {
+        var im = this.d.import; if (!im || im.state === 'unknown') return '';
+        var svc = im.svc === 'sonarr' ? 'Sonarr' : 'Radarr', what = im.title || '';
+        if (im.type === 'show' && im.seasons && im.seasons.length) what += ' · ' + im.seasons.map(function (n) { return t('title.season', { n: n }); }).join(', ');
+        var line, cls;
+        if (im.state === 'imported') {
+          cls = 'ok'; line = '✓  ' + t('tor.imp.imported', { svc: svc }) + (im.type === 'show' ? ' · ' + t('tor.imp.eps', { a: im.imported, b: im.expected }) : '') +
+            (im.date ? ' · ' + fmtDate(im.date) : '');
+        } else if (im.state === 'partial') {
+          cls = 'warn'; line = '⚠  ' + t('tor.imp.partial', { svc: svc, a: im.imported, b: im.expected });
+        } else if (im.state === 'pending') {
+          cls = 'warn'; line = '⏳  ' + t(this.d.progress >= 100 ? 'tor.imp.pending' : 'tor.imp.downloading', { svc: svc });
+        } else { cls = 'warn'; line = t('tor.imp.none'); }
+        var hint = im.state === 'imported' ? t('tor.imp.safe') : t('tor.imp.unsafe');
+        return '<div class="imp-box ' + cls + '"><div class="imp-t">' + esc(line) + '</div>' + (what && im.state !== 'none' ? '<div class="imp-s">' + esc(what) + '</div>' : '') +
+          '<div class="imp-s">' + esc(hint) + '</div></div>';
+      },
       draw: function () {
         var d = this.d, self = this, cls = tCls(d.state);
         var facts = [
@@ -887,7 +906,7 @@
         this.el.innerHTML = '<div class="page-title tor-title">' + esc(d.name) + '</div>' +
           '<div class="page-sub"><span class="ticon inline ' + cls + '">' + tIcon(d.state) + '</span> ' + esc(tStateLabel(d.state)) + (d.label ? ' · ' + esc(d.label) : '') +
           (d.message ? ' · <span class="rej">' + esc(d.message) + '</span>' : '') + '</div>' +
-          '<div class="tor-wrap"><div class="tor-left"><div class="bar big ' + cls + '"><i data-w="' + d.progress + '%"></i></div><div class="tor-facts">' +
+          '<div class="tor-wrap"><div class="tor-left"><div class="bar big ' + cls + '"><i data-w="' + d.progress + '%"></i></div>' + this.importBox() + '<div class="tor-facts">' +
           facts.map(function (f) { return '<div class="fact"><b>' + esc(f[0]) + '</b><span>' + esc(f[1]) + '</span></div>'; }).join('') + '</div>' +
           '<div class="tor-acts">' + acts + '</div></div>' +
           '<div class="tor-right"><div class="dl-chips">' + tabs + '</div><div class="tor-list"><div class="list-inner" id="torInner">' +
@@ -917,12 +936,17 @@
       },
       run: function (b) {
         var self = this, d = this.d;
+        if (b.id === 'open') { this.armed = null; return openDetail({ type: d.import.type, tmdb: d.import.tmdb, title: d.import.title }); }
         if (b.danger) {
-          if (this.armed !== b.id) { this.armed = b.id; return toast(t('common.pressOkAgain', { what: b.label.toLowerCase() }), 5000); }
+          // Deleting files that Sonarr/Radarr haven't imported loses the download: one more confirmation.
+          var risky = b.id === 'removeData' && !(d.import && d.import.state === 'imported');
+          if (this.armed !== b.id) { this.armed = b.id; this.presses = 1; return toast(t('common.pressOkAgain', { what: b.label.toLowerCase() }), 5000); }
+          this.presses++;
+          if (risky && this.presses < 3) return toast(t('tor.imp.confirm'), 8000);
           this.armed = null;
-          return api('/api/torrent/' + hash + '/remove', { withData: b.id === 'removeData' }).then(function () {
+          return api('/api/torrent/' + hash + '/remove', { withData: b.id === 'removeData', force: risky }).then(function () {
             toast(t('tor.removed'), 4000); popOverlay(); Downloads.load();
-          }).catch(function (e) { toast(e.message, 6000); });
+          }).catch(function (e) { toast(e.code === 'not_imported' ? t('tor.imp.blocked') : e.message, 7000); });
         }
         this.armed = null;
         var body = b.id === 'limit' ? { down: nextLimit(d.limitDown) } : {};
