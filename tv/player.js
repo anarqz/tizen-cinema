@@ -101,7 +101,46 @@
   var P = window.Player = { active: false };
   var ctx, item, info, engine, segments, nextEp, dur = 0;
   var ui = { visible: false, zone: 'bar', btn: 0, hideTimer: null, panel: null, col: 0, row: [0, 0, 0], styleRow: 0, searchRow: 0 };
-  var subs = { index: null, events: [], offset: 0, ptr: 0 }, audioIndex = null;
+  var subs = { index: null, events: [], offset: 0, ptr: 0 }, audioIndex = null, wantAudio = null;
+
+  // ── remembered audio/subtitle choices: per title (series/movie TMDB id), with a global fallback ──
+  var TRACK_KEY = 'cinemaTracks';
+  function langNorm(l) {
+    l = (l || '').toLowerCase();
+    if (/^(pob|pt-br|ptbr|pb)$/.test(l)) return 'pt-br';
+    var map = { por: 'pt', pt: 'pt', eng: 'en', en: 'en', spa: 'es', es: 'es', fre: 'fr', fra: 'fr', fr: 'fr', ger: 'de', deu: 'de', de: 'de',
+                ita: 'it', it: 'it', jpn: 'ja', ja: 'ja', kor: 'ko', ko: 'ko', chi: 'zh', zho: 'zh', zh: 'zh', rus: 'ru', ru: 'ru' };
+    return map[l] || l;
+  }
+  function loadTracks() {
+    var all; try { all = JSON.parse(localStorage.getItem(TRACK_KEY) || '{}'); } catch (e) { all = {}; }
+    var old = localStorage.getItem(LANG_KEY);            // migrate the single language kept by earlier versions
+    if (old && !(all.global && all.global.sub)) { all.global = all.global || {}; all.global.sub = old === 'off' ? 'off' : { lang: langNorm(old) }; }
+    return all;
+  }
+  function prefFor() { var all = loadTracks(); return (ctx && ctx.tmdb && all[ctx.tmdb]) || all.global || {}; }
+  function savePref(part, value) {
+    if (!ctx || ctx.stream) return;                       // trailers don't change your preferences
+    var all = loadTracks();
+    [ctx.tmdb ? String(ctx.tmdb) : null, 'global'].forEach(function (k) { if (k) { all[k] = all[k] || {}; all[k][part] = value; } });
+    localStorage.setItem(TRACK_KEY, JSON.stringify(all));
+  }
+  function describe(x) { return { lang: langNorm(x.Language), forced: !!x.IsForced, hi: !!x.IsHearingImpaired, external: !!x.IsExternal, title: x.DisplayTitle || '' }; }
+  // Same language first (exact, then family: pt-br ~ pt), then the same kind of track.
+  function bestMatch(list, want) {
+    if (!want || !want.lang) return null;
+    var best = null, bs = 0;
+    list.forEach(function (x) {
+      var d = describe(x), sc = 0;
+      if (d.lang === want.lang) sc += 8; else if (d.lang.slice(0, 2) === want.lang.slice(0, 2)) sc += 5; else return;
+      if (d.forced === !!want.forced) sc += 3;
+      if (d.hi === !!want.hi) sc += 1;
+      if (d.external === !!want.external) sc += 1;
+      if (want.title && d.title === want.title) sc += 1;
+      if (sc > bs) { bs = sc; best = x; }
+    });
+    return best;
+  }
   var scrub = null, scrubTimer = null, scrubStep = 10000, lastScrub = 0;
   var tickTimer = null, reportTimer = null, skipShownFor = null, skipDismissed = {}, nextState = null, candidates = null;
 
@@ -133,9 +172,12 @@
       (ctx.subtitle ? '<div class="pl-subtitle">' + esc(ctx.subtitle) + '</div>' : '');
     shelf = null;
     subs = { index: null, events: [], offset: 0, ptr: 0 }; segments = []; nextEp = null; nextState = null; skipDismissed = {}; candidates = null;
+    audioIndex = null; wantAudio = null;
     if (ctx.stream) { item = { UserData: {} }; return start(0); }   // trailers: a plain file from the Cinema server
     JF.item(ctx.itemId).then(function (it) {
       item = it;
+      var pa = prefFor().audio, m = pa ? bestMatch((it.MediaStreams || []).filter(function (x) { return x.Type === 'Audio'; }), pa) : null;
+      wantAudio = m ? m.Index : null;
       var pos = it.UserData && it.UserData.PlaybackPositionTicks ? it.UserData.PlaybackPositionTicks / 10000 : 0;
       if (ctx.resume && pos > 0) return start(pos);
       if (pos > 60000 && (!it.RunTimeTicks || pos < it.RunTimeTicks / 10000 - 120000)) return prompt(pos);
@@ -158,17 +200,21 @@
     var infoP = ctx.stream ? Promise.resolve({ url: ctx.stream.url, method: 'DirectPlay', mediaSource: { Id: 'stream' }, playSessionId: null,
         defaultAudio: null, defaultSubtitle: null,
         streams: (ctx.stream.subs || []).map(function (x, i) { return { Type: 'Subtitle', Index: i, Language: x.lang, DisplayTitle: x.label, IsExternal: true, Codec: 'vtt' }; }) })
-      : JF.playbackInfo(ctx.itemId, { startMs: startMs, audioIndex: opts.audioIndex, subtitleIndex: opts.burnSubtitle, forceTranscode: opts.forceTranscode });
+      : JF.playbackInfo(ctx.itemId, { startMs: startMs, audioIndex: opts.audioIndex != null ? opts.audioIndex : wantAudio,
+          subtitleIndex: opts.burnSubtitle, forceTranscode: opts.forceTranscode });
     return infoP
       .then(function (pi) {
         info = pi;
-        if (audioIndex == null) audioIndex = pi.defaultAudio;
+        if (opts.audioIndex != null) audioIndex = opts.audioIndex;
+        else if (audioIndex == null) audioIndex = wantAudio != null ? wantAudio : pi.defaultAudio;
         var listener = { buffering: spin, ended: onEnded, error: function (e) { onEngineError(e, startMs, opts); } };
         engine = (window.webapis && webapis.avplay) ? AvplayEngine(listener) : Html5Engine(listener);
         return engine.open(pi.url, startMs);
       })
       .then(function () {
         engine.play(); spin(false);
+        // Direct play starts on the file's default audio track; move to the remembered one.
+        if (info.method === 'DirectPlay' && audioIndex != null) nativeAudio(audioIndex);
         dur = engine.duration() || (item.RunTimeTicks ? item.RunTimeTicks / 10000 : 0);
         if (opts.burnSubtitle == null) chooseInitialSubtitle();
         JF.reportStart(report('start'));
@@ -225,21 +271,21 @@
   function isText(s) { return s && !/pgs|dvd|dvb|vobsub/i.test(s.Codec || ''); }
 
   function chooseInitialSubtitle() {
-    var list = textSubs().filter(isText), pref = localStorage.getItem(LANG_KEY);
+    var list = textSubs().filter(isText), pref = prefFor().sub;
     var a = audioStreams().filter(function (s) { return s.Index === audioIndex; })[0];
     var pick = null;
-    if (pref === 'off') pick = null;
-    else if (pref) pick = list.filter(function (s) { return (s.Language || '') === pref && !s.IsForced; })[0] || null;
-    if (!pick && pref !== 'off' && info.defaultSubtitle != null && info.defaultSubtitle >= 0) pick = list.filter(function (s) { return s.Index === info.defaultSubtitle; })[0] || null;
-    if (!pick && pref !== 'off' && !(a && isPt(a.Language))) pick = list.filter(function (s) { return isPt(s.Language); })[0] || null;
+    if (pref === 'off') return setSubtitle(null, true);
+    if (pref) pick = bestMatch(list, pref);
+    if (!pick && info.defaultSubtitle != null && info.defaultSubtitle >= 0) pick = list.filter(function (s) { return s.Index === info.defaultSubtitle; })[0] || null;
+    if (!pick && !(a && isPt(a.Language))) pick = list.filter(function (s) { return isPt(s.Language) && !s.IsForced; })[0] || null;
     setSubtitle(pick ? pick.Index : null, true);
   }
 
   function setSubtitle(index, quiet) {
     subs.index = index; subs.events = []; subs.ptr = 0; $('plSub').innerHTML = '';
-    if (index == null) { if (!quiet) localStorage.setItem(LANG_KEY, 'off'); return Promise.resolve(); }
+    if (index == null) { if (!quiet) savePref('sub', 'off'); return Promise.resolve(); }
     var s = textSubs().filter(function (x) { return x.Index === index; })[0];
-    if (!quiet && s) localStorage.setItem(LANG_KEY, s.Language || '');
+    if (!quiet && s) savePref('sub', describe(s));
     if (s && !isText(s)) {   // image subtitles: the server burns them into the video
       U.toast(t('pl.imageSubs'), 5000);
       var at = engine.time(); engine.stop();
@@ -559,11 +605,30 @@
     }
   }
 
+  var NATIVE_AUDIO = /aac|mp3|ac3|eac3|flac|opus|vorbis|pcm/i;
+  // Switch the TV's player to a Jellyfin audio stream (direct play only). Returns false if it can't.
+  function nativeAudio(index) {
+    var list = audioStreams(), target = list.filter(function (x) { return x.Index === index; })[0];
+    if (!target) return false;
+    var fileDefault = list.filter(function (x) { return x.IsDefault; })[0] || list[0];
+    if (fileDefault && fileDefault.Index === index) return true;          // already playing it
+    if (!NATIVE_AUDIO.test(target.Codec || '')) {
+      // the TV can't decode this codec: let the server convert it
+      var at = engine.time(); engine.stop(); clearInterval(tickTimer);
+      start(at, { audioIndex: index, forceTranscode: true });
+      return true;
+    }
+    var avTracks = engine.audioTracks(), order = list.map(function (x) { return x.Index; }).indexOf(index);
+    if (avTracks[order] == null) return false;
+    try { engine.setAudio(avTracks[order]); return true; } catch (e) { return false; }
+  }
+
   function chooseTrack(it) {
     if (!it) return;
     if (it.kind === 'audio') {
       if (it.index === audioIndex) return;
       var target = audioStreams().filter(function (s) { return s.Index === it.index; })[0];
+      if (target) savePref('audio', describe(target));
       var order = audioStreams().map(function (s) { return s.Index; }).indexOf(it.index);
       var avTracks = engine.audioTracks();
       var nativeOk = info.method === 'DirectPlay' && avTracks[order] != null && /aac|mp3|ac3|eac3|flac|opus|vorbis|pcm/i.test(target.Codec || '');
