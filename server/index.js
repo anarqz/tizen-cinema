@@ -200,10 +200,10 @@ async function buildHome() {
 const GENRES = { show: [80, 18, 35, 10765, 9648, 16, 99], movie: [28, 53, 35, 878, 27, 18, 16, 10749] };
 
 async function genreNames(kind) {
-  return cached(`genres:${lang()}:${kind}`, 7 * 24 * 3600e3, async () => {
+  return cached(`genres2:${lang()}:${kind}`, 7 * 24 * 3600e3, async () => {
     const r = await tmdb(`/genre/${kind}/list`, { language: lang() });
-    return new Map((r.genres || []).map((g) => [g.id, g.name]));
-  });
+    return (r.genres || []).map((g) => [g.id, g.name]);   // JSON-safe for the disk cache
+  }).then((pairs) => new Map(Array.isArray(pairs) ? pairs : []));
 }
 
 async function genreRow(type, id) {
@@ -558,15 +558,15 @@ async function seriesArrId(tmdbId) {
 }
 
 async function tmdbSeason(tmdbId, n) {
-  return cached(`tmdb:${lang()}:season:${tmdbId}:${n}`, DAY, async () => {
+  return cached(`tmdb:${lang()}:season2:${tmdbId}:${n}`, DAY, async () => {
     const loc = await tmdb(`/tv/${tmdbId}/season/${n}`, { language: lang() }).catch(() => ({ episodes: [] }));
     if (lang() !== 'en-US' && (loc.episodes || []).some((e) => !e.overview)) {
       const en = await tmdb(`/tv/${tmdbId}/season/${n}`, { language: 'en-US' }).catch(() => ({ episodes: [] }));
       const byNum = new Map((en.episodes || []).map((e) => [e.episode_number, e]));
       for (const e of loc.episodes || []) { const x = byNum.get(e.episode_number); if (x && !e.overview) e.overview = x.overview; }
     }
-    return new Map((loc.episodes || []).map((e) => [e.episode_number, e]));
-  });
+    return loc.episodes || [];   // plain array: cache entries are stored as JSON
+  }).then((eps) => new Map((Array.isArray(eps) ? eps : []).map((e) => [e.episode_number, e])));
 }
 
 async function season(tmdbId, n) {

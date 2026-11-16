@@ -160,6 +160,10 @@
     return req('POST', '/Items/' + id + '/Refresh?Recursive=true&MetadataRefreshMode=Default&ImageRefreshMode=Default&ReplaceAllMetadata=false&ReplaceAllImages=false');
   };
   JF.forget = function (type, tmdb) { delete findCache[type + ':' + tmdb]; };
+  // Re-probe one item's files (new external subtitles, replaced file with other audio tracks).
+  JF.rescanItem = function (id) {
+    return req('POST', '/Items/' + id + '/Refresh?Recursive=true&MetadataRefreshMode=FullRefresh&ImageRefreshMode=Default&ReplaceAllMetadata=false&ReplaceAllImages=false');
+  };
   JF.seasons = function (seriesId) {
     return req('GET', '/Shows/' + seriesId + '/Seasons?UserId=' + uid()).then(function (r) { return r.Items || []; });
   };

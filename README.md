@@ -32,7 +32,7 @@ Cinema combines what's trending (Trakt, TMDB, IMDb ratings) with your own librar
   - **subtitle styles**: size, color, position, shadow, *black box* or *black band* (hides subtitles burned into the video);
   - search and download subtitles from Bazarr's providers, re-sync them with the audio (Bazarr/ffsubsync), or nudge the timing ±0.25 s;
   - skip intro / recap, next-episode countdown and seek thumbnails (when Jellyfin has media segments and trickplay).
-- **Downloads**: live Deluge progress, the Sonarr/Radarr queue, **Sync movies / Sync shows / Sync all** buttons (import finished downloads, then scan only that Jellyfin library, or everything), plus **Sync season** on each season page and a *Needs attention* list with one-press fixes for stuck imports.
+- **Downloads**: live Deluge progress, the Sonarr/Radarr queue, **Sync movies / Sync shows / Sync all** buttons (import finished downloads, then scan only that Jellyfin library, or everything), plus **Sync show**, **Sync season** and **Sync movie** (re-reads that file, e.g. after new subtitles or audio tracks) on their pages and a *Needs attention* list with one-press fixes for stuck imports.
 - **Coming up**: episodes and movies releasing in the next two weeks.
 - **Profiles** from your Jellyfin users (Quick Connect or password), with your avatar in the menu.
 - **Settings in the app** with live connection status for every service — or edit them from a phone or computer at `http://<server>:3817/settings`.

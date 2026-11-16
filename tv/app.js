@@ -529,13 +529,58 @@
     }).catch(function (e) { syncError(s, e); })
       .then(function () { s.running = false; attentionCache.at = 0; redraw(); });
   }
-  // One season: Sonarr import, then re-scan only that season's folder (or the series / TV library
-  // if Jellyfin doesn't know it yet) and wait until Jellyfin lists the downloaded episodes.
-  function syncSeason(d, n, expected, s, redraw) {
+  // One movie: Radarr import, then have Jellyfin re-read just that movie (FullRefresh re-probes the file
+  // and its external subtitles). Done when its streams change, or after ~25 s with nothing new.
+  function syncMovie(d, s, redraw) {
+    if (s.running) return Promise.resolve();
+    s.running = true; s.idle = false; s.err = false; s.key = 'dl.importing'; s.p = null; redraw();
+    function sig(it) { return (it.MediaStreams || []).map(function (x) { return x.Type + x.Index + (x.Path || '') + (x.Language || ''); }).join('|') + '#' + (it.Path || ''); }
+    return api('/api/sync', { scope: 'movie' }).then(function () {
+      if (!JF.signedIn()) { s.key = 'dl.syncNoJf'; return; }
+      s.key = 'dl.scanStart'; redraw();
+      JF.forget('movie', d.tmdb);
+      return JF.findByTmdb('movie', d.tmdb, d.originalTitle || d.title, d.year).then(function (hit) {
+        if (hit) return hit;
+        return scanScope('movie', function (p) { s.key = 'dl.scanning'; s.p = { p: p }; redraw(); }).then(function () {
+          JF.forget('movie', d.tmdb);
+          return JF.findByTmdb('movie', d.tmdb, d.originalTitle || d.title, d.year);
+        }).then(function (h2) { if (!h2) throw new Error(t('pl.notInJf')); return { fresh: h2 }; });
+      }).then(function (hit) {
+        if (hit.fresh) return { changed: true };   // just discovered by the library scan
+        return JF.item(hit.Id).then(function (before) {
+          var was = sig(before), started = Date.now();
+          s.key = 'sync.movieScan'; redraw();
+          return JF.rescanItem(hit.Id).then(function () {
+            return new Promise(function (resolve) {
+              (function poll() {
+                JF.item(hit.Id).then(function (it) {
+                  if (sig(it) !== was) return resolve({ changed: true, item: it });
+                  if (Date.now() - started > 25000) return resolve({ changed: false });
+                  setTimeout(poll, 2500);
+                }).catch(function () { resolve({ changed: false }); });
+              })();
+            });
+          });
+        });
+      }).then(function (r) {
+        var subs = r.item ? (r.item.MediaStreams || []).filter(function (x) { return x.Type === 'Subtitle'; }).length : null;
+        var audio = r.item ? (r.item.MediaStreams || []).filter(function (x) { return x.Type === 'Audio'; }).length : null;
+        s.key = r.changed ? (r.item ? 'sync.movieChanged' : 'sync.movieDone') : 'sync.movieSame';
+        s.p = { t: new Date().toTimeString().slice(0, 5), a: audio, s: subs };
+        Discover.loadResume();
+      });
+    }).catch(function (e) { syncError(s, e); })
+      .then(function () { s.running = false; attentionCache.at = 0; redraw(); });
+  }
+
+  // One show (n = null) or one season: Sonarr import, then re-scan only that folder (or the TV
+  // library if Jellyfin doesn't know the show yet) and wait until Jellyfin lists the downloaded episodes.
+  function syncShow(d, n, expected, s, redraw) {
     if (s.running) return Promise.resolve();
     s.running = true; s.idle = false; s.err = false; s.key = 'dl.importing'; s.p = null; redraw();
     var series = null;
     function count() {
+      if (n == null) return JF.episodes(series.Id).then(function (eps) { return eps.filter(function (e) { return e.LocationType !== 'Virtual'; }).length; });
       return JF.seasons(series.Id).then(function (ss) {
         var se = ss.filter(function (x) { return x.IndexNumber === Number(n); })[0];
         return se ? JF.seasonEpisodes(series.Id, se.Id).then(function (eps) { return eps.length; }) : 0;
@@ -553,6 +598,7 @@
             return JF.findByTmdb('show', d.tmdb, d.originalTitle || d.title, d.year);
           }).then(function (h2) { series = h2; if (!series) throw new Error(t('pl.notInJf')); });
         }
+        if (n == null) return JF.scanFolder(series.Id);
         return JF.seasons(series.Id).then(function (ss) {
           var se = ss.filter(function (x) { return x.IndexNumber === Number(n); })[0];
           return JF.scanFolder(se ? se.Id : series.Id);
@@ -572,7 +618,7 @@
       }).then(function (have) {
         var tm = new Date().toTimeString().slice(0, 5);
         if (have != null && have < expected) { s.err = true; s.key = 'sync.seasonPartial'; s.p = { have: have, total: expected }; }
-        else { s.key = 'sync.seasonDone'; s.p = { t: tm }; }
+        else { s.key = n == null ? 'sync.showDone' : 'sync.seasonDone'; s.p = { t: tm }; }
         Discover.loadResume();
       });
     }).catch(function (e) { syncError(s, e); })
@@ -1041,6 +1087,7 @@
   function Detail(card) {
     return {
       d: null, jf: null, sec: 0, idx: [0, 0, 0, 0, 0], busy: false,
+      sync: { key: card.type === 'movie' ? 'sync.film' : 'sync.series', p: null, running: false, err: false, idle: true },
       mount: function (el) {
         this.el = el; var self = this;
         if (this.d) return this.draw();
@@ -1084,6 +1131,10 @@
         if (d.status === 'missing') b.push({ id: 'add', label: '+  ' + t('title.add'), primary: !b.length || b[0].id === 'trailer' });
         else b.push({ id: 'none', label: '✓  ' + t('status.' + d.status) + (d.type === 'show' && d.total ? ' · ' + d.have + '/' + d.total : '') });
         if (d.status !== 'missing' && d.type === 'movie') b.push({ id: 'releases', label: t('title.versions') });
+        if (d.status !== 'missing') {
+          var s = this.sync;
+          b.push({ id: 'sync', label: (s.running || s.idle ? '⟳  ' : s.err ? '✗  ' : '✓  ') + t(s.key, s.p || {}) });
+        }
         return b;
       },
       draw: function () {
@@ -1186,6 +1237,15 @@
             Discover.refreshStatus(); self.d = null; self.busy = false; self.mount(self.el);
           }).catch(function (e) { self.busy = false; toast(e.message, 6000); });
         } else if (b.id === 'releases') pushOverlay(Releases(d, null, null, t('rel.title')));
+        else if (b.id === 'sync') {
+          withJellyfin(function () {
+            var redraw = function () { if (stack[stack.length - 1] === self && self.d) self.draw(); };
+            (d.type === 'movie' ? syncMovie(d, self.sync, redraw) : syncShow(d, null, d.have || 0, self.sync, redraw)).then(function () {
+              // fresh counts (have/total per season) and the play button
+              api('/api/item/' + d.type + '/' + d.tmdb).then(function (nd) { self.d = nd; redraw(); self.loadJellyfin(); }).catch(function () {});
+            });
+          });
+        }
       }
     };
   }
@@ -1356,7 +1416,7 @@
         if (b.id === 'seasonSync') {
           var expected = this.data.episodes.filter(function (x) { return x.status === 'downloaded'; }).length;
           return withJellyfin(function () {
-            syncSeason(d, n, expected, self.sync, function () { if (stack[stack.length - 1] === self && self.data) self.draw(); })
+            syncShow(d, n, expected, self.sync, function () { if (stack[stack.length - 1] === self && self.data) self.draw(); })
               .then(function () { self.load(); });
           });
         }
