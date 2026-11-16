@@ -378,7 +378,8 @@ async function item(type, tmdbId) {
       backdrop: IMG + 'w1280' + r.backdrop_path, overview: r.overview, rating: r.vote_average ? Math.round(r.vote_average * 10) / 10 : null })),
     ratings: { tmdb: card.rating, ...(await omdbRatings(card.imdb).catch(() => null) || {}) },
     seasons: type === 'show' ? (d.seasons || []).filter((s) => s.season_number > 0)
-      .map((s) => ({ number: s.season_number, episodes: s.episode_count, name: s.name })) : undefined,
+      .map((s) => ({ number: s.season_number, episodes: s.episode_count, name: s.name,
+        poster: s.poster_path ? IMG + 'w342' + s.poster_path : null, airYear: (s.air_date || '').slice(0, 4) || null })) : undefined,
   };
   if (type === 'show' && card.arrId) {
     const s = await arr('sonarr', `/api/v3/series/${card.arrId}`);

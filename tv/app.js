@@ -1206,13 +1206,13 @@
         if (secs.indexOf('seasons') !== -1) {
           body += '<div class="tp-sec" data-sec="seasons"><h2>' + t('title.seasons') + '</h2><div class="tp-strip">' + d.seasons.map(function (s, i) {
             var pct = s.have != null && s.episodes ? Math.round(100 * s.have / s.episodes) : null;
-            if (s.dl) {
-              return '<div class="season-card dl" data-dl="season:' + d.tmdb + ':' + s.number + '" data-i="' + i + '"><div class="sc-n">' + s.number + '</div>' +
-                '<div class="sc-t">' + t('title.season', { n: s.number }) + '</div><div class="sc-s">' + esc(seasonDlLine(s.dl)) + '</div>' + dlOverlay(s.dl) + '</div>';
-            }
-            return '<div class="season-card" data-i="' + i + '"><div class="sc-n">' + s.number + '</div><div class="sc-t">' + t('title.season', { n: s.number }) + '</div>' +
-              '<div class="sc-s">' + t('title.episodesOf', { have: s.have != null ? s.have : '–', n: s.episodes }) + '</div>' +
-              (pct != null ? '<div class="bar"><i data-w="' + pct + '%"></i></div>' : '') + '</div>';
+            // poster card: season poster (or the show's), name + episode count at the bottom
+            var info = s.dl ? esc(seasonDlLine(s.dl)) : t('title.episodesOf', { have: s.have != null ? s.have : '–', n: s.episodes });
+            return '<div class="season-card' + (s.dl ? ' dl" data-dl="season:' + d.tmdb + ':' + s.number : '') + '" data-i="' + i + '" data-bg="' + esc(s.poster || d.poster || '') + '">' +
+              '<div class="sc-shade"></div>' + (s.poster ? '' : '<div class="sc-n">' + s.number + '</div>') +
+              '<div class="sc-info"><div class="sc-t">' + t('title.season', { n: s.number }) + (s.airYear ? ' <small>' + esc(s.airYear) + '</small>' : '') + '</div>' +
+              '<div class="sc-s">' + info + '</div>' + (!s.dl && pct != null ? '<div class="bar"><i data-w="' + pct + '%"></i></div>' : '') + '</div>' +
+              (s.dl ? dlOverlay(s.dl) : '') + '</div>';
           }).join('') + '</div></div>';
         }
         if (secs.indexOf('cast') !== -1) {

@@ -220,16 +220,17 @@ html, body {
 .tp-strip .card.land { margin-right: 20px; }
 .season-card {
   display: inline-block; vertical-align: top; white-space: normal; position: relative; overflow: hidden;
-  width: 300px; height: 168px; padding: 22px 24px; margin-right: 20px; border-radius: 12px; background: rgba(255,255,255,.08);
-  transition: transform .18s ease;
+  width: 224px; height: 336px; margin-right: 22px; border-radius: 12px; background: #1c1c22 center / cover no-repeat;
+  transition: transform .18s ease, box-shadow .18s ease;
 }
-.season-card .sc-n { position: absolute; right: 14px; top: -24px; font-size: 150px; font-weight: 900; color: rgba(255,255,255,.07); }
-.season-card .sc-t { font-size: 28px; font-weight: 800; position: relative; }
-.season-card .sc-s { font-size: 21px; color: rgba(255,255,255,.65); margin-top: 8px; position: relative; }
-.season-card .bar { position: absolute; left: 24px; right: 24px; bottom: 22px; }
-.season-card.focus { background: #fff; color: #0b0b0f; transform: scale(1.05); }
-.season-card.focus .sc-s { color: rgba(0,0,0,.6); }
-.season-card.focus .sc-n { color: rgba(0,0,0,.08); }
+.season-card .sc-shade { position: absolute; left: 0; right: 0; bottom: 0; height: 70%; background: linear-gradient(0deg, rgba(0,0,0,.96) 0%, rgba(0,0,0,.85) 35%, rgba(0,0,0,0) 100%); }
+.season-card .sc-n { position: absolute; right: 12px; top: -10px; font-size: 150px; font-weight: 900; color: rgba(255,255,255,.12); }
+.season-card .sc-info { position: absolute; left: 16px; right: 16px; bottom: 14px; z-index: 2; }
+.season-card .sc-t { font-size: 25px; font-weight: 800; }
+.season-card .sc-t small { font-size: 18px; font-weight: 600; color: rgba(255,255,255,.6); }
+.season-card .sc-s { font-size: 18px; color: rgba(255,255,255,.8); margin-top: 4px; }
+.season-card .bar { margin-top: 10px; }
+.season-card.focus { transform: scale(1.07); box-shadow: 0 0 0 4px #fff, 0 20px 44px rgba(0,0,0,.7); z-index: 3; }
 .person { display: inline-block; vertical-align: top; white-space: normal; width: 168px; margin-right: 22px; text-align: center; }
 .person .ph {
   width: 150px; height: 150px; margin: 0 auto 14px; border-radius: 75px; background: #26262e center 20% / cover no-repeat;
@@ -528,12 +529,7 @@ html.playing #backdrop, html.playing body > .scrim, html.playing #rail, html.pla
 .dl-pct { position: absolute; left: 0; right: 0; top: 50%; margin-top: -26px; height: 52px; line-height: 52px; text-align: center;
   font-size: 40px; font-weight: 900; color: #fff; text-shadow: 0 2px 12px rgba(0,0,0,.9); white-space: nowrap; }
 .top .card.dl .dl-pct { font-size: 34px; }
-.season-card.dl { background: rgba(61,139,253,.30); }
-.season-card.dl .dl-veil { background: rgba(11,11,15,.55); }
-.season-card.dl .sc-t, .season-card.dl .sc-s, .season-card.dl .dl-pct { z-index: 1; }
-.season-card.dl .sc-s { color: #fff; }
-.season-card.dl .dl-pct { top: auto; bottom: 14px; margin: 0; font-size: 32px; text-align: right; padding-right: 22px; }
-.season-card.dl.focus { background: #fff; }
-.season-card.dl.focus .dl-veil { background: rgba(11,11,15,.18); }
-.season-card.dl.focus .sc-s, .season-card.dl.focus .dl-pct { color: #0b0b0f; text-shadow: none; }
+.season-card.dl .dl-veil { z-index: 1; }
+.season-card.dl .dl-pct { z-index: 2; margin-top: -60px; }
 .card.dl .mini-logo, .card.dl .mini-title, .card.dl .dot, .card.dl .badge, .card.dl .dl-pct { z-index: 1; }
+.tp-sec[data-sec="seasons"] { height: 470px; }
