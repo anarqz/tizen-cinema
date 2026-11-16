@@ -101,20 +101,54 @@ async function omdbRatings(imdbId) {
 }
 
 // ── library state (Sonarr/Radarr), refreshed every minute ───────────────────
+// Download state of a Sonarr/Radarr queue record, as the TV shows it.
+function queueState(r) {
+  const t = r.trackedDownloadState || '', st = String(r.status || '').toLowerCase();
+  if (/importBlocked|failedPending/.test(t) || r.trackedDownloadStatus === 'error') return 'blocked';
+  if (/importPending|importing/.test(t)) return 'importing';
+  if (st === 'paused') return 'paused';
+  if (st === 'queued' || st === 'delay') return 'queued';
+  return 'downloading';
+}
+const STATE_RANK = { downloading: 5, queued: 4, paused: 3, importing: 2, blocked: 1 };
+// Aggregate queue records per key: progress over unique downloads (a season pack counts once).
+function aggregate(records, keyOf) {
+  const out = new Map();
+  for (const r of records) {
+    const k = keyOf(r); if (k == null) continue;
+    if (!out.has(k)) out.set(k, { dls: new Map(), eps: 0, state: null, timeleft: null });
+    const a = out.get(k), st = queueState(r);
+    a.eps++;
+    if (!a.state || STATE_RANK[st] > STATE_RANK[a.state]) a.state = st;
+    if (st === 'downloading' && r.timeleft && (!a.timeleft || r.timeleft > a.timeleft)) a.timeleft = r.timeleft;
+    a.dls.set(r.downloadId || r.id, { size: r.size || 0, left: r.sizeleft || 0 });
+  }
+  for (const [k, a] of out) {
+    let size = 0, left = 0;
+    for (const d of a.dls.values()) { size += d.size; left += d.left; }
+    out.set(k, { progress: size ? Math.min(100, Math.max(0, Math.round(100 * (size - left) / size))) : 0, state: a.state, eps: a.eps, timeleft: a.timeleft });
+  }
+  return out;
+}
+
 async function library() {
-  return cached('library', 60e3, async () => {   // live: memory only, 1 minute
+  return cached('library', 15e3, async () => {   // live: memory only, 15 s (download progress)
     const [series, movies, sq, rq] = await Promise.all([
       has('sonarr') ? arr('sonarr', '/api/v3/series') : [],
       has('radarr') ? arr('radarr', '/api/v3/movie') : [],
-      has('sonarr') ? arr('sonarr', '/api/v3/queue?pageSize=500') : { records: [] },
+      has('sonarr') ? arr('sonarr', '/api/v3/queue?pageSize=500&includeEpisode=true') : { records: [] },
       has('radarr') ? arr('radarr', '/api/v3/queue?pageSize=500') : { records: [] },
     ]);
+    const seasonOf = (r) => (r.seasonNumber != null ? r.seasonNumber : r.episode ? r.episode.seasonNumber : null);
     return {
       byTvdb: new Map(series.map((s) => [s.tvdbId, s])),
       byTmdbShow: new Map(series.filter((s) => s.tmdbId).map((s) => [s.tmdbId, s])),
       byTmdbMovie: new Map(movies.map((m) => [m.tmdbId, m])),
-      dlSeries: new Set(sq.records.map((r) => r.seriesId)),
-      dlMovies: new Set(rq.records.map((r) => r.movieId)),
+      seriesById: new Map(series.map((s) => [s.id, s])),
+      moviesById: new Map(movies.map((m) => [m.id, m])),
+      dlSeries: aggregate(sq.records, (r) => r.seriesId),
+      dlSeasons: aggregate(sq.records, (r) => (r.seriesId && seasonOf(r) != null ? `${r.seriesId}:${seasonOf(r)}` : null)),
+      dlMovies: aggregate(rq.records, (r) => r.movieId),
     };
   }, { persist: false });
 }
@@ -123,14 +157,28 @@ function statusOf(lib, type, ids) {
   if (type === 'show') {
     const s = (ids.tvdb && lib.byTvdb.get(ids.tvdb)) || (ids.tmdb && lib.byTmdbShow.get(ids.tmdb));
     if (!s) return { status: 'missing' };
-    if (lib.dlSeries.has(s.id)) return { status: 'downloading', arrId: s.id };
     const st = s.statistics || {};
-    return { status: st.episodeFileCount > 0 ? 'library' : 'wanted', arrId: s.id, have: st.episodeFileCount || 0, total: st.episodeCount || 0 };
+    const counts = { arrId: s.id, have: st.episodeFileCount || 0, total: st.episodeCount || 0 };
+    if (lib.dlSeries.has(s.id)) return { status: 'downloading', ...counts, dl: lib.dlSeries.get(s.id) };
+    return { status: st.episodeFileCount > 0 ? 'library' : 'wanted', ...counts };
   }
   const m = ids.tmdb && lib.byTmdbMovie.get(ids.tmdb);
   if (!m) return { status: 'missing' };
-  if (lib.dlMovies.has(m.id)) return { status: 'downloading', arrId: m.id };
+  if (lib.dlMovies.has(m.id)) return { status: 'downloading', arrId: m.id, dl: lib.dlMovies.get(m.id) };
   return { status: m.hasFile ? 'library' : 'wanted', arrId: m.id };
+}
+
+// Everything downloading right now, keyed the way the TV tags its cards.
+async function progress() {
+  const lib = await library();
+  const out = {};
+  for (const [id, dl] of lib.dlMovies) { const m = lib.moviesById.get(id); if (m && m.tmdbId) out[`movie:${m.tmdbId}`] = dl; }
+  for (const [id, dl] of lib.dlSeries) { const s = lib.seriesById.get(id); if (s && s.tmdbId) out[`show:${s.tmdbId}`] = dl; }
+  for (const [k, dl] of lib.dlSeasons) {
+    const [id, n] = k.split(':'); const s = lib.seriesById.get(Number(id));
+    if (s && s.tmdbId) out[`season:${s.tmdbId}:${n}`] = dl;
+  }
+  return { items: out };
 }
 
 // ── cards ───────────────────────────────────────────────────────────────────
@@ -335,7 +383,9 @@ async function item(type, tmdbId) {
   if (type === 'show' && card.arrId) {
     const s = await arr('sonarr', `/api/v3/series/${card.arrId}`);
     const byNum = new Map((s.seasons || []).map((x) => [x.seasonNumber, x.statistics || {}]));
-    out.seasons = out.seasons.map((x) => ({ ...x, have: (byNum.get(x.number) || {}).episodeFileCount || 0 }));
+    const lib = await library().catch(() => null);
+    out.seasons = out.seasons.map((x) => ({ ...x, have: (byNum.get(x.number) || {}).episodeFileCount || 0,
+      dl: (lib && lib.dlSeasons.get(`${card.arrId}:${x.number}`)) || null }));
     out.subtitlesMissing = await bazarrMissing('series', card.arrId);
   } else if (type === 'movie' && card.arrId) {
     out.subtitlesMissing = await bazarrMissing('movies', card.arrId);
@@ -884,6 +934,7 @@ const routes = [
   ['GET', /^\/api\/torrent\/([a-fA-F0-9]{40})$/, (m) => torrentDetail(m[1])],
   ['POST', /^\/api\/torrent\/([a-fA-F0-9]{40})\/(\w+)$/, async (m, u, req) => torrentAction(m[1], m[2], await readBody(req))],
   ['GET', /^\/api\/upcoming$/, () => upcoming()],
+  ['GET', /^\/api\/progress$/, () => progress()],
   ['POST', /^\/api\/sync$/, body((b) => syncNow(b && b.scope))],
   ['GET', /^\/api\/sync\/attention$/, () => attention()],
   ['POST', /^\/api\/sync\/resolve$/, body(resolve)],

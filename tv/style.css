@@ -209,6 +209,8 @@ html, body {
 .tp-hero { width: 1040px; min-height: 690px; }
 .tp-hero .logo { max-height: 210px; max-width: 620px; }
 .tagline { font-size: 24px; font-style: italic; color: rgba(255,255,255,.7); margin: -4px 0 12px; }
+.actions.one-line { width: 1660px; overflow: hidden; padding: 10px; margin-left: -10px; }
+.act-strip { white-space: nowrap; transition: transform .25s ease; }
 .tp-hero .overview { max-height: 145px; margin: 4px 0 18px; font-size: 25px; }
 .cert { display: inline-block; border: 2px solid rgba(255,255,255,.65); border-radius: 4px; padding: 0 9px; font-size: 20px; font-weight: 800; margin-right: 18px; vertical-align: 2px; }
 .overlay .backdrop { transition: opacity .4s ease; }
@@ -519,3 +521,19 @@ html.playing #backdrop, html.playing body > .scrim, html.playing #rail, html.pla
 .trailer-prep .tp-label { font-size: 26px; font-weight: 600; margin: 10px 0 20px; color: rgba(255,255,255,.85); }
 .trailer-prep .bar.big { width: 520px; margin: 0 auto; }
 .trailer-prep .bar.big i { background: var(--accent); }
+
+/* download in progress: the part still missing is veiled, percentage in the middle */
+.card.dl, .season-card.dl { overflow: hidden; }
+.dl-veil { position: absolute; right: 0; top: 0; bottom: 0; background: rgba(11,11,15,.66); border-left: 3px solid var(--accent); transition: width .8s ease; }
+.dl-pct { position: absolute; left: 0; right: 0; top: 50%; margin-top: -26px; height: 52px; line-height: 52px; text-align: center;
+  font-size: 40px; font-weight: 900; color: #fff; text-shadow: 0 2px 12px rgba(0,0,0,.9); white-space: nowrap; }
+.top .card.dl .dl-pct { font-size: 34px; }
+.season-card.dl { background: rgba(61,139,253,.30); }
+.season-card.dl .dl-veil { background: rgba(11,11,15,.55); }
+.season-card.dl .sc-t, .season-card.dl .sc-s, .season-card.dl .dl-pct { z-index: 1; }
+.season-card.dl .sc-s { color: #fff; }
+.season-card.dl .dl-pct { top: auto; bottom: 14px; margin: 0; font-size: 32px; text-align: right; padding-right: 22px; }
+.season-card.dl.focus { background: #fff; }
+.season-card.dl.focus .dl-veil { background: rgba(11,11,15,.18); }
+.season-card.dl.focus .sc-s, .season-card.dl.focus .dl-pct { color: #0b0b0f; text-shadow: none; }
+.card.dl .mini-logo, .card.dl .mini-title, .card.dl .dot, .card.dl .badge, .card.dl .dl-pct { z-index: 1; }

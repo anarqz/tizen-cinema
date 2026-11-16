@@ -231,17 +231,36 @@
     if (c.badgeKey) return t(c.badgeKey);
     return c.badge || '';
   }
+  // Download progress on cards: the not-yet-downloaded part is veiled and the percentage sits in the
+  // middle. Cards carry data-dl="movie:<tmdb>" / "season:<tmdb>:<n>" so DlWatch can update them in place.
+  function dlLabel(dl) { return dl.state === 'downloading' ? dl.progress + '%' : t('dlc.' + dl.state); }
+  function dlTime(s) {   // Sonarr/Radarr "hh:mm:ss" (or "d.hh:mm:ss")
+    var m = /^(?:(\d+)\.)?(\d+):(\d+):\d+$/.exec(s || ''); if (!m) return '';
+    var h = (Number(m[1] || 0) * 24) + Number(m[2]), min = Number(m[3]);
+    return h ? h + 'h ' + min + 'min' : (min || 1) + ' min';
+  }
+  function dlOverlay(dl) {
+    return '<div class="dl-veil" data-w="' + (100 - dl.progress) + '%"></div><div class="dl-pct">' + esc(dlLabel(dl)) + '</div>';
+  }
+  function seasonDlLine(dl) {
+    var bits = [t(dl.eps === 1 ? 'dlc.eps1' : 'dlc.eps', { n: dl.eps }), t('dlc.' + dl.state)];
+    if (dl.state === 'downloading' && dl.timeleft) bits.push(t('season.left', { t: dlTime(dl.timeleft) }));
+    return '↓ ' + bits.join(' · ');
+  }
   function landCard(c) {
     var st = STATUS_DOT[c.status] ? '<div class="dot ' + c.status + '">' + STATUS_DOT[c.status] + '</div>' : '';
     var b = cardBadge(c), badge = b ? '<div class="badge">' + esc(b) + '</div>' : '';
     var art = c.logo ? '<img class="mini-logo" src="' + esc(c.logo) + '">' : '<div class="mini-title">' + esc(c.title) + '</div>';
     var resume = c.progress != null && c.jellyfinId ? '<div class="ep-sub">' + esc(c.subtitle || '') + '</div><div class="progress"><i data-w="' + c.progress + '%"></i></div>' : '';
-    return '<div class="card land' + (resume ? ' resume' : '') + '" data-bg="' + esc(c.thumb || c.backdrop || c.poster || '') + '">' +
-      '<div class="shade"></div>' + art + st + badge + resume + '</div>';
+    var dl = c.type === 'movie' && c.status === 'downloading' && c.dl && !resume;
+    return '<div class="card land' + (resume ? ' resume' : '') + (dl ? ' dl" data-dl="movie:' + c.tmdb : '') + '" data-bg="' + esc(c.thumb || c.backdrop || c.poster || '') + '">' +
+      '<div class="shade"></div>' + art + st + badge + resume + (dl ? dlOverlay(c.dl) : '') + '</div>';
   }
   function topCard(c, i) {
     var st = STATUS_DOT[c.status] ? '<div class="dot ' + c.status + '">' + STATUS_DOT[c.status] + '</div>' : '';
-    return '<div class="top"><div class="num">' + (i + 1) + '</div><div class="card" data-bg="' + esc(c.poster || '') + '">' + st + '</div></div>';
+    var dl = c.type === 'movie' && c.status === 'downloading' && c.dl;
+    return '<div class="top"><div class="num">' + (i + 1) + '</div><div class="card' + (dl ? ' dl" data-dl="movie:' + c.tmdb : '') + '" data-bg="' + esc(c.poster || '') + '">' +
+      st + (dl ? dlOverlay(c.dl) : '') + '</div></div>';
   }
 
   // ── browse screens (Home, TV Shows, Movies) ─────────────────────────────────
@@ -343,10 +362,36 @@
       else return false;
       this.focus(); return true;
     },
-    refreshStatus: function () { this.rows = null; }
+    refreshStatus: function () { this.rows = null; },
+    reloadDownloads: function () {   // a download finished: fresh statuses without the loading screen
+      var self = this;
+      api(path).then(function (d) { self.rows = d.rows; if (current === self && !overlayOpen()) self.draw(); }).catch(function () {});
+    }
   }; }
   var Home = Browse('/api/home'), Shows = Browse('/api/browse/show', 'show'), Movies = Browse('/api/browse/movie', 'movie');
   var BROWSES = [Home, Shows, Movies];
+  // Every 10 s, while the visible screen shows a downloading card: patch progress in place; when one
+  // finishes (no longer in the queue) the screen reloads to show its new status.
+  var DlWatch = {
+    tick: function () {
+      if (Player.active) return;
+      var top = overlayOpen() ? stack[stack.length - 1] : current, root = overlayOpen() ? $('overlay') : $('screen');
+      if (!top || !root || !root.querySelector('[data-dl]')) return;
+      api('/api/progress').then(function (r) {
+        var els = root.querySelectorAll('[data-dl]'), done = false;
+        for (var i = 0; i < els.length; i++) {
+          var dl = r.items[els[i].getAttribute('data-dl')];
+          if (!dl) { done = true; continue; }
+          var veil = els[i].querySelector('.dl-veil'), pct = els[i].querySelector('.dl-pct'), line = els[i].querySelector('.sc-s');
+          if (veil) veil.style.width = (100 - dl.progress) + '%';
+          if (pct) pct.textContent = dlLabel(dl);
+          if (line) line.textContent = seasonDlLine(dl);
+        }
+        if (done && top.reloadDownloads) top.reloadDownloads();
+      }).catch(function () {});
+    }
+  };
+  setInterval(function () { DlWatch.tick(); }, 10000);
   var Discover = {   // fan-out helpers used across screens
     refreshStatus: function () { BROWSES.forEach(function (b) { b.refreshStatus(); }); },
     loadResume: function () { BROWSES.forEach(function (b) { b.loadResume(); }); }
@@ -1098,6 +1143,12 @@
         }).catch(function (e) { toast(e.message); });
       },
       refresh: function () { this.loadJellyfin(); if (this.d) this.draw(); },
+      reloadDownloads: function () {
+        var self = this, d = this.d; if (!d) return;
+        api('/api/item/' + d.type + '/' + d.tmdb).then(function (nd) {
+          self.d = nd; if (stack[stack.length - 1] === self) self.draw(); self.loadJellyfin();
+        }).catch(function () {});
+      },
       // What "▶ Watch" plays: the movie, or the next-up episode (with resume position) for series.
       loadJellyfin: function () {
         var self = this, d = this.d;
@@ -1148,13 +1199,17 @@
         var hero = '<div class="tp-hero" data-sec="hero">' + titleArt(d) + '<div class="meta">' + meta + '</div>' +
           (d.tagline ? '<div class="tagline">' + esc(d.tagline) + '</div>' : '') +
           '<div class="overview">' + esc(d.overview) + '</div>' + by + cast + next +
-          '<div class="actions">' + this.buttons().map(function (b, i) {
+          '<div class="actions one-line"><div class="act-strip" id="actStrip">' + this.buttons().map(function (b, i) {
             return '<div class="btn' + (b.primary ? ' primary' : '') + '" data-i="' + i + '">' + esc(b.label) + '</div>';
-          }).join('') + '</div></div>';
+          }).join('') + '</div></div></div>';
         var secs = this.sections(), body = '';
         if (secs.indexOf('seasons') !== -1) {
           body += '<div class="tp-sec" data-sec="seasons"><h2>' + t('title.seasons') + '</h2><div class="tp-strip">' + d.seasons.map(function (s, i) {
             var pct = s.have != null && s.episodes ? Math.round(100 * s.have / s.episodes) : null;
+            if (s.dl) {
+              return '<div class="season-card dl" data-dl="season:' + d.tmdb + ':' + s.number + '" data-i="' + i + '"><div class="sc-n">' + s.number + '</div>' +
+                '<div class="sc-t">' + t('title.season', { n: s.number }) + '</div><div class="sc-s">' + esc(seasonDlLine(s.dl)) + '</div>' + dlOverlay(s.dl) + '</div>';
+            }
             return '<div class="season-card" data-i="' + i + '"><div class="sc-n">' + s.number + '</div><div class="sc-t">' + t('title.season', { n: s.number }) + '</div>' +
               '<div class="sc-s">' + t('title.episodesOf', { have: s.have != null ? s.have : '–', n: s.episodes }) + '</div>' +
               (pct != null ? '<div class="bar"><i data-w="' + pct + '%"></i></div>' : '') + '</div>';
@@ -1196,6 +1251,10 @@
         var secEl = this.el.querySelector('[data-sec="' + name + '"]'); if (!secEl) return;
         var target = name === 'hero' ? secEl.querySelector('.btn[data-i="' + idx + '"]') : secEl.querySelectorAll('.tp-strip > *')[idx];
         if (target) target.classList.add('focus');
+        if (name === 'hero' && target) {   // buttons stay on one line and scroll sideways
+          var strip0 = $('actStrip'), view = strip0.parentNode.offsetWidth;
+          strip0.style.transform = 'translateX(' + (-Math.max(0, target.offsetLeft + target.offsetWidth + 40 - view)) + 'px)';
+        }
         if (name !== 'hero') {
           var strip = secEl.querySelector('.tp-strip'), w = target ? target.offsetWidth + 20 : 0;
           strip.style.transform = 'translateX(' + (-Math.max(0, idx - 2) * w) + 'px)';
