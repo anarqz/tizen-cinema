@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cinema</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="backdrop" class="backdrop"></div>
+  <div class="scrim"></div>
+
+  <nav id="rail" class="rail">
+    <div class="rail-item profile" data-tab="profile"><div class="avatar" id="railAvatar">?</div><span></span></div>
+    <div class="rail-item" data-tab="discover">
+      <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg><span></span></div>
+    <div class="rail-item" data-tab="shows">
+      <svg viewBox="0 0 24 24"><path d="M3 6h18v12H3zm2 2v8h14V8zm3-6 4 3 4-3 1.2 1.6L13.7 6h-3.4L6.8 3.6z"/></svg><span></span></div>
+    <div class="rail-item" data-tab="movies">
+      <svg viewBox="0 0 24 24"><path d="M4 4h16v16H4zm2 2v2h2V6zm4 0v12h4V6zm6 0v2h2V6zM6 10v4h2v-4zm10 0v4h2v-4zM6 16v2h2v-2zm10 0v2h2v-2z"/></svg><span></span></div>
+    <div class="rail-item" data-tab="search">
+      <svg viewBox="0 0 24 24"><path d="M10 3a7 7 0 0 1 5.6 11.2l5.1 5.1-1.4 1.4-5.1-5.1A7 7 0 1 1 10 3zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10z"/></svg><span></span></div>
+    <div class="rail-item" data-tab="downloads">
+      <svg viewBox="0 0 24 24"><path d="M11 3h2v9.2l3.3-3.3 1.4 1.4L12 16l-5.7-5.7 1.4-1.4 3.3 3.3zM4 19h16v2H4z"/></svg><span></span></div>
+    <div class="rail-item" data-tab="upcoming">
+      <svg viewBox="0 0 24 24"><path d="M7 2h2v2h6V2h2v2h3v17H4V4h3zm11 7H6v10h12z"/></svg><span></span></div>
+    <div class="rail-item settings" data-tab="settings">
+      <svg viewBox="0 0 24 24"><path d="m19.4 13 .1-1-.1-1 2.1-1.6-2-3.5-2.5 1a7 7 0 0 0-1.7-1L15 3h-4l-.4 2.6a7 7 0 0 0-1.7 1l-2.4-1-2 3.5L6.6 11l-.1 1 .1 1-2.1 1.6 2 3.5 2.5-1a7 7 0 0 0 1.7 1L11 21h4l.4-2.6a7 7 0 0 0 1.7-1l2.4 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg><span></span></div>
+  </nav>
+
+  <main id="screen" class="screen"></main>
+  <section id="overlay" class="overlay hidden"></section>
+  <section id="player" class="player hidden"></section>
+  <div id="toast" class="toast"></div>
+
+  <script src="$WEBAPIS/webapis/webapis.js"></script>
+  <script src="i18n.js"></script>
+  <script src="common.js"></script>
+  <script src="jellyfin.js"></script>
+  <script src="player.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

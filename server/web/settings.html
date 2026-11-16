@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cinema · Settings</title>
+<style>
+  :root { --bg:#0b0b0f; --card:#16161c; --line:#26262e; --fg:#f4f4f6; --mute:#8b8b96; --accent:#ffcc34; --ok:#2fbf71; --err:#ff6b5b; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.45 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  header { padding:28px 20px 8px; max-width:880px; margin:0 auto; display:flex; align-items:center; gap:14px; }
+  header svg { width:40px; height:40px; }
+  h1 { font-size:24px; margin:0; }
+  header .v { color:var(--mute); font-size:13px; margin-left:auto; }
+  main { max-width:880px; margin:0 auto; padding:8px 20px 80px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px 20px; margin:14px 0; }
+  section h2 { font-size:17px; margin:0 0 4px; display:flex; align-items:center; gap:10px; }
+  section p.hint { color:var(--mute); margin:0 0 12px; font-size:13px; }
+  .dot { width:10px; height:10px; border-radius:5px; background:var(--line); display:inline-block; }
+  .dot.ok { background:var(--ok); } .dot.error { background:var(--err); }
+  .st { font-weight:400; font-size:13px; color:var(--mute); }
+  .st.error { color:var(--err); }
+  label { display:block; font-size:13px; color:var(--mute); margin:10px 0 4px; }
+  input, select { width:100%; padding:10px 12px; border-radius:9px; border:1px solid var(--line); background:#0f0f14; color:var(--fg); font-size:15px; }
+  input:focus, select:focus { outline:2px solid var(--accent); border-color:transparent; }
+  .row { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+  @media (max-width:640px) { .row { grid-template-columns: 1fr; } }
+  .bar { position:fixed; bottom:0; left:0; right:0; background:rgba(11,11,15,.94); border-top:1px solid var(--line); padding:12px 20px; }
+  .bar div { max-width:880px; margin:0 auto; display:flex; gap:12px; align-items:center; }
+  button { background:var(--accent); color:#000; border:0; border-radius:9px; padding:11px 22px; font-weight:700; font-size:15px; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--fg); border:1px solid var(--line); }
+  #msg { color:var(--mute); font-size:14px; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="none" stroke="#fff" stroke-width="8"/><path d="M42 33 L42 67 L69 50 Z" fill="#ffcc34"/></svg>
+  <h1 data-t="title">Cinema settings</h1><span class="v" id="ver"></span>
+</header>
+<main id="main"></main>
+<div class="bar"><div><button id="save" data-t="save">Save</button><button class="ghost" id="test" data-t="test">Test connections</button><span id="msg"></span></div></div>
+
+<script>
+(function () {
+  var pt = /^pt/i.test(navigator.language || '');
+  var T = pt ? {
+    title: 'Configurações do Cinema', save: 'Salvar', test: 'Testar conexões', saved: 'Salvo ✓', keep: 'definida ({h}) · deixe em branco para manter',
+    empty: 'não definida', pin: 'PIN das configurações:', ok: 'Conectado', off: 'Não configurado', profileAuto: 'Automático (1080p)',
+    s: { jellyfin: ['Jellyfin', 'Servidor de mídia. A TV conecta direto a ele para reproduzir.'], sonarr: ['Sonarr', 'Séries.'], radarr: ['Radarr', 'Filmes.'],
+      prowlarr: ['Prowlarr', 'Indexadores (usados via Sonarr/Radarr).'], bazarr: ['Bazarr', 'Legendas: busca e sincronização.'], deluge: ['Deluge', 'Downloads (interface web).'],
+      tmdb: ['TMDB', 'Metadados, imagens e busca. Obrigatório.'], trakt: ['Trakt', 'Listas em alta e mais vistos.'], omdb: ['OMDb', 'Notas IMDb, Rotten Tomatoes e Metacritic.'],
+      prefs: ['Preferências', 'Idioma e região dos metadados.'], security: ['Segurança', 'PIN opcional para alterar as configurações.'] },
+    f: { url: 'Endereço (URL)', apiKey: 'Chave da API', password: 'Senha', token: 'Token de leitura da API (v4)', clientId: 'Client ID',
+      qualityProfile: 'Perfil de qualidade padrão', metadataLanguage: 'Idioma dos metadados (ex.: pt-BR, en-US)', region: 'Região (classificação indicativa, ex.: BR, US)', pin: 'PIN' }
+  } : {
+    title: 'Cinema settings', save: 'Save', test: 'Test connections', saved: 'Saved ✓', keep: 'set ({h}) · leave empty to keep',
+    empty: 'not set', pin: 'Settings PIN:', ok: 'Connected', off: 'Not configured', profileAuto: 'Automatic (1080p)',
+    s: { jellyfin: ['Jellyfin', 'Media server. The TV connects to it directly for playback.'], sonarr: ['Sonarr', 'TV shows.'], radarr: ['Radarr', 'Movies.'],
+      prowlarr: ['Prowlarr', 'Indexers (used through Sonarr/Radarr).'], bazarr: ['Bazarr', 'Subtitles: search and sync.'], deluge: ['Deluge', 'Downloads (web UI).'],
+      tmdb: ['TMDB', 'Metadata, artwork and search. Required.'], trakt: ['Trakt', 'Trending and most-watched lists.'], omdb: ['OMDb', 'IMDb, Rotten Tomatoes and Metacritic ratings.'],
+      prefs: ['Preferences', 'Metadata language and region.'], security: ['Security', 'Optional PIN to change settings.'] },
+    f: { url: 'Address (URL)', apiKey: 'API key', password: 'Password', token: 'API read access token (v4)', clientId: 'Client ID',
+      qualityProfile: 'Default quality profile', metadataLanguage: 'Metadata language (e.g. en-US, pt-BR)', region: 'Region (age ratings, e.g. US, BR)', pin: 'PIN' }
+  };
+  document.querySelectorAll('[data-t]').forEach(function (el) { el.textContent = T[el.getAttribute('data-t')]; });
+  document.title = 'Cinema · ' + T.title;
+  var ORDER = ['jellyfin', 'tmdb', 'trakt', 'omdb', 'sonarr', 'radarr', 'prowlarr', 'bazarr', 'deluge', 'prefs', 'security'];
+  var pin = sessionStorage.getItem('cinemaPin') || '';
+  var settings = null, opts = { sonarrProfiles: [], radarrProfiles: [] };
+
+  function api(method, path, body) {
+    return fetch(path, { method: method, headers: { 'Content-Type': 'application/json', 'X-Cinema-Pin': pin }, body: body ? JSON.stringify(body) : undefined })
+      .then(function (r) { return r.json().then(function (j) { if (r.status === 401) { var p = prompt(T.pin); if (p == null) throw new Error('PIN'); pin = p; sessionStorage.setItem('cinemaPin', p); return api(method, path, body); } if (!r.ok) throw new Error(j.error || r.status); return j; }); });
+  }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+  function render() {
+    var html = '';
+    ORDER.forEach(function (sec) {
+      var fields = settings[sec], meta = T.s[sec];
+      html += '<section><h2><span class="dot" id="dot-' + sec + '"></span>' + meta[0] + ' <span class="st" id="st-' + sec + '"></span></h2><p class="hint">' + meta[1] + '</p><div class="row">';
+      Object.keys(fields).forEach(function (f) {
+        var v = fields[f], id = sec + '.' + f, label = T.f[f] || f;
+        if (f === 'qualityProfile') {
+          var list = sec === 'sonarr' ? opts.sonarrProfiles : opts.radarrProfiles;
+          html += '<div><label for="' + id + '">' + label + '</label><select id="' + id + '"><option value="">' + T.profileAuto + '</option>' +
+            list.map(function (n) { return '<option' + (n === v ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join('') +
+            (v && list.indexOf(v) === -1 ? '<option selected>' + esc(v) + '</option>' : '') + '</select></div>';
+        } else if (v && typeof v === 'object' && v.secret) {
+          html += '<div><label for="' + id + '">' + label + '</label><input id="' + id + '" type="password" autocomplete="off" placeholder="' +
+            esc(v.set ? T.keep.replace('{h}', v.hint) : T.empty) + '"></div>';
+        } else {
+          html += '<div><label for="' + id + '">' + label + '</label><input id="' + id + '" value="' + esc(v) + '"' + (f === 'url' ? ' placeholder="http://192.168.1.10:8989"' : '') + '></div>';
+        }
+      });
+      html += '</div></section>';
+    });
+    document.getElementById('main').innerHTML = html;
+  }
+
+  function collect() {
+    var out = {};
+    ORDER.forEach(function (sec) {
+      out[sec] = {};
+      Object.keys(settings[sec]).forEach(function (f) {
+        var el = document.getElementById(sec + '.' + f), v = settings[sec][f];
+        if (v && typeof v === 'object' && v.secret) { if (el.value) out[sec][f] = el.value; }
+        else out[sec][f] = el.value;
+      });
+    });
+    return out;
+  }
+
+  function test() {
+    document.getElementById('msg').textContent = '…';
+    api('GET', '/api/settings/status').then(function (r) {
+      Object.keys(r.services).forEach(function (s) {
+        var st = r.services[s], dot = document.getElementById('dot-' + s), txt = document.getElementById('st-' + s);
+        if (!dot) return;
+        dot.className = 'dot ' + st.state;
+        txt.className = 'st ' + st.state;
+        txt.textContent = st.state === 'ok' ? '· ' + T.ok + (st.version ? ' (' + st.version + ')' : '') : st.state === 'off' ? '· ' + T.off : '· ' + st.message;
+      });
+      document.getElementById('msg').textContent = '';
+    });
+  }
+
+  function load() {
+    Promise.all([api('GET', '/api/settings'), api('GET', '/api/settings/options').catch(function () { return opts; }), api('GET', '/api/public')]).then(function (r) {
+      settings = r[0].settings; opts = r[1]; document.getElementById('ver').textContent = 'v' + r[2].version;
+      render(); test();
+    }).catch(function (e) { document.getElementById('msg').textContent = e.message; });
+  }
+
+  document.getElementById('save').onclick = function () {
+    api('PUT', '/api/settings', collect()).then(function (r) {
+      settings = r.settings; document.getElementById('msg').textContent = T.saved;
+      api('GET', '/api/settings/options').then(function (o) { opts = o; render(); test(); }).catch(function () { render(); test(); });
+    }).catch(function (e) { document.getElementById('msg').textContent = e.message; });
+  };
+  document.getElementById('test').onclick = test;
+  load();
+})();
+</script>
+</body>
+</html>

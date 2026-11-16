@@ -1,0 +1,10 @@
+local/
+.local-nas/
+data/
+docs/
+tv/
+tools/
+.git/
+.env
+secrets.env
+*.md

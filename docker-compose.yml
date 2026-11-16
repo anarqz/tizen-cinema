@@ -1,0 +1,15 @@
+# Cinema backend. Configure everything in the app (Settings) or at http://<host>:3817/settings.
+# Environment variables are optional initial values (see .env.example).
+services:
+  cinema:
+    build: .
+    image: cinema-backend
+    container_name: cinema
+    restart: unless-stopped
+    ports:
+      - "3817:3817"
+    volumes:
+      - ./data:/data          # settings (config.json) live here
+    env_file:
+      - path: .env
+        required: false

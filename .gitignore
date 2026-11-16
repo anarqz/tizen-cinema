@@ -1,0 +1,9 @@
+local/
+.local-nas/
+node_modules/
+data/
+.env
+secrets.env
+*.wgt
+.buildResult/
+.DS_Store

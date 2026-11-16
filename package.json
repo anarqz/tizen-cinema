@@ -1,0 +1,14 @@
+{
+  "name": "cinema",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Streaming-style TV app for Samsung Tizen TVs, backed by Jellyfin and the *arr stack",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}
