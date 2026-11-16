@@ -461,7 +461,7 @@ async function torrentDetail(hash) {
     files: (t.files || []).map((f, i) => ({ path: f.path, size: f.size, progress: Math.round(((t.file_progress || [])[i] || 0) * 1000) / 10,
       skipped: (t.file_priorities || [])[i] === 0 })).sort((a, b) => b.size - a.size),
     // peers: client, country and speeds only (no IP addresses)
-    peers: (t.peers || []).map((p) => ({ client: p.client, country: p.country, progress: Math.round((p.progress || 0) * 1000) / 10,
+    peerList: (t.peers || []).map((p) => ({ client: p.client, country: p.country, progress: Math.round((p.progress || 0) * 1000) / 10,
       down: p.down_speed, up: p.up_speed, seed: !!p.seed })).sort((a, b) => (b.down + b.up) - (a.down + a.up)),
   };
 }
