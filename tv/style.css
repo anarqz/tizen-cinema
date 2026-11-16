@@ -503,3 +503,13 @@ html.playing #backdrop, html.playing body > .scrim, html.playing #rail, html.pla
 .results .card.land { width: 306px; height: 172px; margin: 0 16px 22px 0; }
 .results .card .mini-logo { max-width: 190px; max-height: 54px; }
 .results .card .mini-title { font-size: 21px; }
+
+/* player shelf: cast + more like this */
+.pl-panel.shelf { height: 600px; padding: 40px 0 0 90px; background: linear-gradient(0deg, rgba(8,8,12,.97) 70%, rgba(8,8,12,.6) 90%, rgba(8,8,12,0)); overflow: hidden; }
+.shelf-row { height: 280px; opacity: .55; transition: opacity .2s; }
+.shelf-row.on { opacity: 1; }
+.pl-panel.shelf .tp-strip { white-space: nowrap; transition: transform .25s ease; }
+.pl-panel.shelf .person { width: 150px; margin-right: 20px; }
+.pl-panel.shelf .person .ph { width: 130px; height: 130px; line-height: 130px; border-radius: 65px; }
+.pl-panel.shelf .card.land { width: 320px; height: 180px; margin-right: 20px; }
+.pl-panel.shelf .ring { margin: 160px auto 0; }

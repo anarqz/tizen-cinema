@@ -202,11 +202,14 @@
       Discover.loadResume();
     });
   }
-  Player.onNavigate = function (kind, c) {
+  // From the player: series / season / movie page, or a cast member / related title on top of it.
+  Player.onNavigate = function (kind, c, target) {
     while (stack.length) { var o = stack.pop(); if (o.unmount) o.unmount(); }
-    var card = { type: 'show', tmdb: c.tmdb, title: c.title, logo: c.logo, backdrop: c.backdrop };
+    var card = { type: c.type === 'movie' ? 'movie' : 'show', tmdb: c.tmdb, title: c.title, logo: c.logo, backdrop: c.backdrop };
     pushOverlay(Detail(card));
     if (kind === 'season' && c.season != null) pushOverlay(Season(card, c.season));
+    if (kind === 'person' && target) pushOverlay(Person(target));
+    if (kind === 'title' && target) openDetail(target);
   };
   function playEpisode(d, season, episode, title) {
     withJellyfin(function () {

@@ -131,6 +131,7 @@
     applySubStyle(); spin(true);
     $('plTitle').innerHTML = (ctx.logo ? '<img class="pl-logo" src="' + esc(ctx.logo) + '">' : '<div class="pl-name">' + esc(ctx.title) + '</div>') +
       (ctx.subtitle ? '<div class="pl-subtitle">' + esc(ctx.subtitle) + '</div>' : '');
+    shelf = null;
     subs = { index: null, events: [], offset: 0, ptr: 0 }; segments = []; nextEp = null; nextState = null; skipDismissed = {}; candidates = null;
     JF.item(ctx.itemId).then(function (it) {
       item = it;
@@ -327,7 +328,8 @@
   }
   // "Ver série" / "Ver temporada" (episodes only), above the progress bar.
   function links() {
-    if (!ctx || ctx.type !== 'show' || !ctx.tmdb) return [];
+    if (!ctx || !ctx.tmdb) return [];
+    if (ctx.type === 'movie') return [{ id: 'movie', label: t('pl.movie') }];
     var l = [{ id: 'series', label: t('pl.series') }];
     if (ctx.season != null) l.push({ id: 'season', label: t('pl.season', { n: ctx.season }) });
     return l;
@@ -336,10 +338,60 @@
     var el = $('plLinks'); if (!el) return;
     el.innerHTML = links().map(function (x, i) { return '<div class="pl-link" data-l="' + i + '">' + esc(x.label) + '</div>'; }).join('');
   }
-  function navigate(kind) {
+  function navigate(kind, target) {
     var c = ctx, exit = P.onExit;
     P.onExit = null; P.close(); P.onExit = exit;
-    if (P.onNavigate) P.onNavigate(kind, c);
+    if (P.onNavigate) P.onNavigate(kind, c, target);
+  }
+
+  // ── shelf (Down): cast + "More like this" over the playing video ──────────
+  var shelf = null;   // { d, row, idx: [0, 0] }
+  function openShelf() {
+    if (!ctx.tmdb) return showUi();
+    ui.panel = 'shelf'; ui.zone = 'panel';
+    shelf = shelf && shelf.tmdb === ctx.tmdb ? shelf : { tmdb: ctx.tmdb, d: null, row: 0, idx: [0, 0] };
+    drawShelf(); showUi();
+    if (!shelf.d) U.api('/api/item/' + ctx.type + '/' + ctx.tmdb).then(function (d) { if (shelf && shelf.tmdb === ctx.tmdb) { shelf.d = d; if (ui.panel === 'shelf') drawShelf(); } })
+      .catch(function (e) { U.toast(e.message, 5000); });
+  }
+  function shelfRows() {
+    var d = shelf && shelf.d; if (!d) return [];
+    var rows = [];
+    if (d.people && d.people.length) rows.push({ kind: 'cast', title: t('title.cast'), items: d.people });
+    if (d.recommendations && d.recommendations.length) rows.push({ kind: 'recs', title: t('title.more'), items: d.recommendations });
+    return rows;
+  }
+  function drawShelf() {
+    var el = $('plPanel'); el.classList.remove('hidden'); el.className = 'pl-panel shelf';
+    if (!shelf.d) { el.innerHTML = '<div class="ring"></div>'; return; }
+    var rows = shelfRows();
+    shelf.row = Math.min(shelf.row, Math.max(0, rows.length - 1));
+    el.innerHTML = rows.map(function (r, ri) {
+      var cells = r.items.map(function (x, i) {
+        var f = ri === shelf.row && i === shelf.idx[ri] ? ' focus' : '';
+        if (r.kind === 'cast') {
+          return '<div class="person' + f + '"><div class="ph" data-bg="' + esc(x.photo || '') + '">' + (x.photo ? '' : esc((x.name || '?').charAt(0))) + '</div>' +
+            '<div class="pn">' + esc(x.name) + '</div><div class="pc">' + esc(x.character || '') + '</div></div>';
+        }
+        return '<div class="card land' + f + '" data-bg="' + esc(x.thumb || x.backdrop || '') + '"><div class="shade"></div><div class="mini-title">' + esc(x.title) + '</div></div>';
+      }).join('');
+      return '<div class="shelf-row' + (ri === shelf.row ? ' on' : '') + '"><div class="pl-col-t">' + esc(r.title) + '</div><div class="tp-strip" data-r="' + ri + '">' + cells + '</div></div>';
+    }).join('') || '<div class="hint">—</div>';
+    var strips = el.querySelectorAll('.tp-strip');
+    for (var n = 0; n < strips.length; n++) {
+      var first = strips[n].children[0], w = first ? first.offsetWidth + 20 : 0;
+      strips[n].style.transform = 'translateX(' + (-Math.max(0, shelf.idx[n] - 3) * w) + 'px)';
+    }
+  }
+  function shelfKey(k) {
+    var rows = shelfRows(); if (!rows.length) return;
+    var r = rows[shelf.row], n = r.items.length;
+    if (k === K.LEFT) shelf.idx[shelf.row] = Math.max(0, shelf.idx[shelf.row] - 1);
+    else if (k === K.RIGHT) shelf.idx[shelf.row] = Math.min(n - 1, shelf.idx[shelf.row] + 1);
+    else if (k === K.UP) { if (shelf.row > 0) shelf.row--; else { closePanel(); return; } }
+    else if (k === K.DOWN) { if (shelf.row < rows.length - 1) shelf.row++; }
+    else if (k === K.ENTER) { var x = r.items[shelf.idx[shelf.row]]; return navigate(r.kind === 'cast' ? 'person' : 'title', x); }
+    drawShelf();
   }
   function drawButtons() {
     var el = $('plBtns'); if (!el) return;
@@ -470,6 +522,7 @@
   function qsOf(o) { return Object.keys(o).filter(function (k) { return o[k] != null; }).map(function (k) { return k + '=' + encodeURIComponent(o[k]); }).join('&'); }
 
   function panelKey(k) {
+    if (ui.panel === 'shelf') return shelfKey(k);
     if (ui.panel === 'tracks') {
       var cols = trackCols(), c = ui.col;
       if (k === K.UP) ui.row[c] = Math.max(0, ui.row[c] - 1);
@@ -618,6 +671,7 @@
       if (k === K.LEFT) return scrubBy(-1);
       if (k === K.RIGHT) return scrubBy(1);
       if (k === K.ENTER) return togglePause();
+      if (k === K.DOWN) return openShelf();
       return showUi();
     }
     if (ui.zone === 'bar') {
@@ -641,6 +695,7 @@
       if (k === K.LEFT) ui.btn = Math.max(0, ui.btn - 1);
       else if (k === K.RIGHT) ui.btn = Math.min(n - 1, ui.btn + 1);
       else if (k === K.UP) ui.zone = 'bar';
+      else if (k === K.DOWN) return openShelf();
       else if (k === K.ENTER) { pressButton(buttons()[ui.btn]); return; }
       paintFocus(); showUi();
     }
