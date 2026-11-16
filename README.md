@@ -12,6 +12,7 @@ Cinema combines what's trending (Trakt, TMDB, IMDb ratings) with your own librar
 | ![Episodes](docs/screenshots/season.jpg) | ![Person](docs/screenshots/person.jpg) |
 | ![Movies](docs/screenshots/movies.jpg) | ![Settings](docs/screenshots/settings.jpg) |
 | ![Downloads](docs/screenshots/downloads.jpg) | ![TV Shows](docs/screenshots/shows.jpg) |
+| ![Seasons with download progress](docs/screenshots/seasons.jpg) | ![Torrent detail with import status](docs/screenshots/torrent.jpg) |
 
 <details><summary>Português (Brasil) interface</summary>
 

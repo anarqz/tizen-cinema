@@ -38,7 +38,7 @@
     if (!n) return '—';
     var u = ['B', 'KB', 'MB', 'GB', 'TB'], i = 0;
     while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
-    return n.toFixed(n >= 10 || i < 2 ? 0 : 1).replace('.', ',') + ' ' + u[i];
+    return window.I18n.num(n, n >= 10 || i < 2 ? 0 : 1) + ' ' + u[i];
   };
   U.eta = function (sec) {
     if (!sec || sec < 0) return '';

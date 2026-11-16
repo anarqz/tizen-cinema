@@ -1449,7 +1449,7 @@
           (e.file.audio && e.file.audio.length ? '<div class="ep-line"><b>' + t('season.audio') + '</b> ' + esc(e.file.audio.join(', ')) + '</div>' : '') : '';
         var blocked = e.status === 'blocked' ? '<div class="ep-line"><b>' + t('ep.blocked') + '</b> <span class="rej">' +
           esc(e.blockReason && e.blockReason !== 'other' && I18n.has('reason.' + e.blockReason) ? t('reason.' + e.blockReason) : (e.blockMessage || '')) + '</span></div>' : '';
-        var prog = e.status === 'downloading' ? '<div class="ep-line"><b>' + t('season.download') + '</b> ' + (e.progress || 0) + '%' + (e.timeleft ? ' · ' + esc(t('season.left', { t: e.timeleft })) : '') +
+        var prog = e.status === 'downloading' ? '<div class="ep-line"><b>' + t('season.download') + '</b> ' + (e.progress || 0) + '%' + (e.timeleft ? ' · ' + esc(t('season.left', { t: dlTime(e.timeleft) || e.timeleft })) : '') +
           (e.downloadState ? ' · ' + esc(e.downloadState) : '') + '</div><div class="bar"><i data-w="' + (e.progress || 0) + '%"></i></div>' : '';
         var acts = this.actions(e).map(function (b, i) { return '<div class="btn' + (b.primary ? ' primary' : '') + '" data-a="' + i + '">' + esc(b.label) + '</div>'; }).join('');
         $('epPanel').innerHTML = '<div class="still" data-bg="' + esc(e.still || d.backdrop || '') + '"></div>' +
