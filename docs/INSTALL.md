@@ -122,6 +122,6 @@ Settings and profiles are kept.
 | "Could not reach a Cinema server" on the TV | Use the server's LAN IP (not `localhost`) and check that port 3817 is open. |
 | Rows are empty | TMDB (required) or Trakt is missing or invalid. Check the status dots in Settings. |
 | Quick Connect code never appears | Enable Quick Connect in the Jellyfin dashboard. |
-| "Sync library" says the account can't scan | Scanning the Jellyfin library needs an administrator profile. |
+| "Sync" says the account can't scan | Scanning the Jellyfin library needs an administrator profile. |
 | A file plays with conversion or no sound | Some codecs (e.g. DTS audio) aren't supported by every TV; Cinema asks Jellyfin to transcode automatically. Make sure Jellyfin has hardware or enough CPU for transcoding. |
 | Subtitles are out of sync | In the player: *Audio & subtitles → Sync with audio (Bazarr)*, or nudge them ±0.25 s. |

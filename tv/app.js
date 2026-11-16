@@ -467,37 +467,116 @@
     };
   }
 
-  var sync = { key: 'dl.sync', p: null, running: false, err: false, armed: null };
+  // Sync = import finished downloads (Sonarr/Radarr), then make Jellyfin re-scan. Scopes:
+  // 'movie' / 'show' scan just those Jellyfin libraries; 'all' runs the full library scan.
+  var syncs = {};
+  function syncState(scope) { return syncs[scope] || (syncs[scope] = { key: 'sync.' + scope, p: null, running: false, err: false, idle: true }); }
   var attentionCache = { at: 0, items: [] };
   function loadAttention(force) {
     if (!force && Date.now() - attentionCache.at < 15000) return Promise.resolve(attentionCache.items);
     return api('/api/sync/attention').then(function (r) { attentionCache = { at: Date.now(), items: r.items }; return r.items; })
       .catch(function () { return attentionCache.items; });
   }
-  function syncLabel() { return (sync.running || sync.key === 'dl.sync' ? '⟳  ' : sync.err ? '✗  ' : '✓  ') + t(sync.key, sync.p || {}); }
-  function runSync(screen) {
-    if (sync.running) return;
-    sync.running = true; sync.err = false; sync.key = 'dl.importing'; sync.p = null; screen.load();
-    api('/api/sync', {}).then(function () {
-      if (!JF.signedIn()) { sync.key = 'dl.syncNoJf'; return; }
-      sync.key = 'dl.scanStart'; screen.load();
+  function syncLabel(scope) { var s = syncState(scope); return (s.running || s.idle ? '⟳  ' : s.err ? '✗  ' : '✓  ') + t(s.key, s.p || {}); }
+  function syncError(s, e) {
+    s.err = true;
+    if (/403/.test(e.message)) { s.key = 'dl.noAdmin'; s.p = null; } else { s.key = 'common.error'; s.p = { msg: e.message }; }
+  }
+  function pollUntil(check, onTick) {   // check() -> Promise<{ done, p }>
+    return new Promise(function (resolve) {
+      var tries = 0;
+      (function poll() {
+        check().then(function (r) {
+          tries++;
+          if (r && r.running) { onTick(r.p); setTimeout(poll, 2000); }
+          else if (tries < 4) setTimeout(poll, 1500);   // the scan may take a moment to start
+          else resolve();
+        }).catch(function () { resolve(); });
+      })();
+    });
+  }
+  function scanScope(scope, onTick) {
+    if (scope === 'all') {
       return JF.scanLibrary().then(function () {
+        return pollUntil(function () { return JF.scanProgress().then(function (p) { return p && { running: p.running, p: p.percent }; }); }, onTick);
+      });
+    }
+    var want = scope === 'movie' ? 'movies' : 'tvshows';
+    return JF.libraries().then(function (libs) {
+      var mine = libs.filter(function (l) { return l.type === want; });
+      if (!mine.length) throw new Error(t('sync.noLib.' + scope));
+      var ids = mine.map(function (l) { return l.id; });
+      return Promise.all(ids.map(JF.scanFolder)).then(function () {
+        return pollUntil(function () {
+          return JF.libraries().then(function (all) {
+            var act = all.filter(function (l) { return ids.indexOf(l.id) !== -1 && l.active; });
+            return { running: act.length > 0, p: act.length ? Math.round(act.reduce(function (a, l) { return a + l.percent; }, 0) / act.length) : 100 };
+          });
+        }, onTick);
+      });
+    });
+  }
+  function runSync(scope, screen) {
+    var s = syncState(scope);
+    if (s.running) return;
+    var redraw = function () { if (current === screen) screen.load(); };
+    s.running = true; s.idle = false; s.err = false; s.key = 'dl.importing'; s.p = null; redraw();
+    api('/api/sync', { scope: scope }).then(function () {
+      if (!JF.signedIn()) { s.key = 'dl.syncNoJf'; return; }
+      s.key = 'dl.scanStart'; redraw();
+      return scanScope(scope, function (p) { s.key = 'dl.scanning'; s.p = { p: p }; redraw(); })
+        .then(function () { s.key = 'sync.done.' + scope; s.p = { t: new Date().toTimeString().slice(0, 5) }; Discover.refreshStatus(); Discover.loadResume(); });
+    }).catch(function (e) { syncError(s, e); })
+      .then(function () { s.running = false; attentionCache.at = 0; redraw(); });
+  }
+  // One season: Sonarr import, then re-scan only that season's folder (or the series / TV library
+  // if Jellyfin doesn't know it yet) and wait until Jellyfin lists the downloaded episodes.
+  function syncSeason(d, n, expected, s, redraw) {
+    if (s.running) return Promise.resolve();
+    s.running = true; s.idle = false; s.err = false; s.key = 'dl.importing'; s.p = null; redraw();
+    var series = null;
+    function count() {
+      return JF.seasons(series.Id).then(function (ss) {
+        var se = ss.filter(function (x) { return x.IndexNumber === Number(n); })[0];
+        return se ? JF.seasonEpisodes(series.Id, se.Id).then(function (eps) { return eps.length; }) : 0;
+      });
+    }
+    return api('/api/sync', { scope: 'show' }).then(function () {
+      if (!JF.signedIn()) { s.key = 'dl.syncNoJf'; return; }
+      s.key = 'dl.scanStart'; redraw();
+      JF.forget('show', d.tmdb);
+      return JF.findByTmdb('show', d.tmdb, d.originalTitle || d.title, d.year).then(function (hit) {
+        series = hit;
+        if (!series) {   // new series: Jellyfin has to discover its folder first
+          return scanScope('show', function (p) { s.key = 'dl.scanning'; s.p = { p: p }; redraw(); }).then(function () {
+            JF.forget('show', d.tmdb);
+            return JF.findByTmdb('show', d.tmdb, d.originalTitle || d.title, d.year);
+          }).then(function (h2) { series = h2; if (!series) throw new Error(t('pl.notInJf')); });
+        }
+        return JF.seasons(series.Id).then(function (ss) {
+          var se = ss.filter(function (x) { return x.IndexNumber === Number(n); })[0];
+          return JF.scanFolder(se ? se.Id : series.Id);
+        });
+      }).then(function () {
+        var started = Date.now();
         return new Promise(function (resolve) {
-          var tries = 0;
           (function poll() {
-            JF.scanProgress().then(function (p) {
-              tries++;
-              if (p && p.running) { sync.key = 'dl.scanning'; sync.p = { p: p.percent }; if (current === screen) screen.load(); setTimeout(poll, 2000); }
-              else if (tries < 4) setTimeout(poll, 1500);   // the task may take a moment to start
-              else resolve();
-            }).catch(function () { resolve(); });
+            count().then(function (have) {
+              s.key = 'sync.seasonScan'; s.p = { have: have, total: expected }; redraw();
+              if (have >= expected && Date.now() - started > 3000) return resolve(have);
+              if (Date.now() - started > 90000) return resolve(have);
+              setTimeout(poll, 2500);
+            }).catch(function () { resolve(null); });
           })();
         });
-      }).then(function () { sync.key = 'dl.synced'; sync.p = { t: new Date().toTimeString().slice(0, 5) }; Discover.refreshStatus(); Discover.loadResume(); });
-    }).catch(function (e) {
-      sync.err = true;
-      if (/403/.test(e.message)) { sync.key = 'dl.noAdmin'; sync.p = null; } else { sync.key = 'common.error'; sync.p = { msg: e.message }; }
-    }).then(function () { sync.running = false; attentionCache.at = 0; if (current === screen) screen.load(); });
+      }).then(function (have) {
+        var tm = new Date().toTimeString().slice(0, 5);
+        if (have != null && have < expected) { s.err = true; s.key = 'sync.seasonPartial'; s.p = { have: have, total: expected }; }
+        else { s.key = 'sync.seasonDone'; s.p = { t: tm }; }
+        Discover.loadResume();
+      });
+    }).catch(function (e) { syncError(s, e); })
+      .then(function () { s.running = false; attentionCache.at = 0; redraw(); });
   }
 
   // ── Downloads: torrent client (Deluge) + Sonarr/Radarr queue + blocked imports ──
@@ -557,7 +636,8 @@
     },
     topButtons: function () {
       var st = (this.data && this.data.stats) || {};
-      return [{ id: 'sync', label: syncLabel(), cls: 'sync' },
+      return [{ id: 'sync', scope: 'movie', label: syncLabel('movie'), cls: 'sync' }, { id: 'sync', scope: 'show', label: syncLabel('show'), cls: 'sync' },
+              { id: 'sync', scope: 'all', label: syncLabel('all'), cls: 'sync' },
               this.data && this.data.paused ? { id: 'resumeAll', label: '▶  ' + t('tor.resumeAll') } : { id: 'pauseAll', label: '❚❚  ' + t('tor.pauseAll') },
               { id: 'limit', label: '↓  ' + t('tor.limit', { v: limitLabel(st.limitDown) }) }];
     },
@@ -614,7 +694,7 @@
     visibleFilters: function () { var self = this; return DL_FILTERS.map(function (k, n) { return n; }).filter(function (n) { return DL_FILTERS[n] !== 'attention' || self.count('attention'); }); },
     runTop: function (b) {
       var self = this, st = (this.data && this.data.stats) || {};
-      if (b.id === 'sync') return runSync(this);
+      if (b.id === 'sync') return runSync(b.scope, this);
       var call = b.id === 'pauseAll' ? api('/api/torrents/session', { action: 'pause' })
         : b.id === 'resumeAll' ? api('/api/torrents/session', { action: 'resume' })
         : api('/api/torrents/session', { action: 'limit', down: nextLimit(st.limitDown) });
@@ -630,7 +710,7 @@
       var items = this.items(), f = DL_FILTERS[this.filter], vis = this.visibleFilters(), pos = vis.indexOf(this.filter);
       if (this.zone === 'top') {
         if (k === K.LEFT) { if (this.top === 0) return false; this.top--; }
-        else if (k === K.RIGHT) { if (this.top < 2) this.top++; }
+        else if (k === K.RIGHT) { if (this.top < this.topButtons().length - 1) this.top++; }
         else if (k === K.DOWN) this.zone = 'filters';
         else if (k === K.ENTER) { this.runTop(this.topButtons()[this.top]); return true; }
       } else if (this.zone === 'filters') {
@@ -1183,7 +1263,12 @@
         }).catch(function (e) { toast(e.message, 6000); });
       },
       ep: function () { return this.data && this.data.episodes[this.i]; },
-      head: function () { return [{ id: 'seasonAuto', label: t('season.searchAll') }, { id: 'seasonPick', label: t('season.pickPack') }]; },
+      sync: { key: 'sync.season', p: null, running: false, err: false, idle: true },
+      head: function () {
+        var s = this.sync;
+        return [{ id: 'seasonSync', label: (s.running || s.idle ? '⟳  ' : s.err ? '✗  ' : '✓  ') + t(s.key, s.p || {}) },
+                { id: 'seasonAuto', label: t('season.searchAll') }, { id: 'seasonPick', label: t('season.pickPack') }];
+      },
       actions: function (e) {
         if (!e) return [];
         var a = [];
@@ -1257,7 +1342,7 @@
           else if (k === K.ENTER) { this.run(acts[this.a]); return true; }
         } else {
           if (k === K.LEFT) { if (this.h > 0) this.h--; }
-          else if (k === K.RIGHT) { if (this.h < 1) this.h++; }
+          else if (k === K.RIGHT) { if (this.h < this.head().length - 1) this.h++; }
           else if (k === K.DOWN) { this.zone = 'list'; }
           else if (k === K.ENTER) { this.run(this.head()[this.h]); return true; }
         }
@@ -1268,6 +1353,13 @@
         var self = this, e = this.ep(), sid = this.data.seriesId;
         if (!b) return;
         if (b.id === 'play') return playEpisode(d, n, e.number, e.title);
+        if (b.id === 'seasonSync') {
+          var expected = this.data.episodes.filter(function (x) { return x.status === 'downloaded'; }).length;
+          return withJellyfin(function () {
+            syncSeason(d, n, expected, self.sync, function () { if (stack[stack.length - 1] === self && self.data) self.draw(); })
+              .then(function () { self.load(); });
+          });
+        }
         if (b.id === 'fixImport') {
           // same fix as Downloads → Needs attention, matched by the download id
           return loadAttention(true).then(function (items) {

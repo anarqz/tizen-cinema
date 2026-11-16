@@ -683,14 +683,18 @@ async function subsSync(body) {
 }
 
 // ── library sync: import finished downloads, surface blocked imports ───────
-async function syncNow() {
+// scope: 'movie' (Radarr only), 'show' (Sonarr only) or anything else for both.
+async function syncNow(scope) {
   const out = {};
-  for (const svc of ['sonarr', 'radarr']) {
+  const svcs = scope === 'movie' ? ['radarr'] : scope === 'show' ? ['sonarr'] : ['sonarr', 'radarr'];
+  for (const svc of svcs) {
     if (!has(svc)) continue;
     const c = await arr(svc, '/api/v3/command', { method: 'POST', body: JSON.stringify({ name: 'RefreshMonitoredDownloads' }) }).catch((e) => ({ error: e.message }));
     out[svc] = c.error ? c.error : 'ok';
   }
-  clearCaches(false); store.del(`recent:${lang()}:show`); store.del(`recent:${lang()}:movie`);
+  clearCaches(false);
+  if (scope !== 'movie') store.del(`recent:${lang()}:show`);
+  if (scope !== 'show') store.del(`recent:${lang()}:movie`);
   return { ok: true, ...out };
 }
 
@@ -880,7 +884,7 @@ const routes = [
   ['GET', /^\/api\/torrent\/([a-fA-F0-9]{40})$/, (m) => torrentDetail(m[1])],
   ['POST', /^\/api\/torrent\/([a-fA-F0-9]{40})\/(\w+)$/, async (m, u, req) => torrentAction(m[1], m[2], await readBody(req))],
   ['GET', /^\/api\/upcoming$/, () => upcoming()],
-  ['POST', /^\/api\/sync$/, () => syncNow()],
+  ['POST', /^\/api\/sync$/, body((b) => syncNow(b && b.scope))],
   ['GET', /^\/api\/sync\/attention$/, () => attention()],
   ['POST', /^\/api\/sync\/resolve$/, body(resolve)],
   ['POST', /^\/api\/trailer\/youtube$/, async (m, u, req) => trailerOnTv(req, await readBody(req))],

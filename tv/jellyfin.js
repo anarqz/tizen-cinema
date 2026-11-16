@@ -147,6 +147,26 @@
                    last: t.LastExecutionResult && t.LastExecutionResult.EndTimeUtc } : null;
     });
   };
+  // Partial sync: re-scan one library (movies / tvshows) or one folder (series, season) instead of
+  // everything. Same call the Jellyfin dashboard's "Scan library" uses; needs an admin account.
+  JF.libraries = function () {
+    return req('GET', '/Library/VirtualFolders').then(function (r) {
+      return (r || []).map(function (f) {
+        return { id: f.ItemId, name: f.Name, type: f.CollectionType, active: f.RefreshStatus === 'Active', percent: Math.round(f.RefreshProgress || 0) };
+      });
+    });
+  };
+  JF.scanFolder = function (id) {
+    return req('POST', '/Items/' + id + '/Refresh?Recursive=true&MetadataRefreshMode=Default&ImageRefreshMode=Default&ReplaceAllMetadata=false&ReplaceAllImages=false');
+  };
+  JF.forget = function (type, tmdb) { delete findCache[type + ':' + tmdb]; };
+  JF.seasons = function (seriesId) {
+    return req('GET', '/Shows/' + seriesId + '/Seasons?UserId=' + uid()).then(function (r) { return r.Items || []; });
+  };
+  JF.seasonEpisodes = function (seriesId, seasonId) {
+    return req('GET', '/Shows/' + seriesId + '/Episodes?UserId=' + uid() + '&SeasonId=' + seasonId + '&Fields=Path')
+      .then(function (r) { return (r.Items || []).filter(function (e) { return e.LocationType !== 'Virtual'; }); });
+  };
   JF.segments = function (id) {
     return req('GET', '/MediaSegments/' + id).then(function (r) { return (r && r.Items) || []; }).catch(function () { return []; });
   };
