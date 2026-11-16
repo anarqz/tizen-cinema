@@ -100,7 +100,7 @@
       'tor.size': 'Size', 'tor.done': 'Downloaded', 'tor.speed': 'Speed', 'tor.etaL': 'Time left', 'tor.seedsL': 'Seeds', 'tor.peersL': 'Peers',
       'tor.uploaded': 'Uploaded', 'tor.ratioL': 'Ratio', 'tor.seedTime': 'Seeding time', 'tor.added': 'Added', 'tor.tracker': 'Tracker', 'tor.queue': 'Queue',
       'tor.files': 'Files ({n})', 'tor.peerList': 'Peers ({n})', 'tor.none': 'Nothing to show',
-      'yt.close': '{t} · OK: open in the YouTube app · Back: close', 'yt.opening': 'Opening in the YouTube app…', 'ep.code': 'S{s}:E{e}', 'pl.dlBazarr': 'Downloading from {p} ({l})…', 'pl.dlRefresh': 'Asking Jellyfin to rescan the episode…', 'pl.dlWaiting': 'Waiting for Jellyfin to list the new subtitle…', 'pl.dlNoAdmin': 'This Jellyfin profile cannot rescan items (needs admin)'
+      'yt.close': '{t} · OK: open in the YouTube app · Back: close', 'yt.opening': 'Opening in the YouTube app…', 'yt.preparing': 'Preparing trailer… {p}%', 'yt.failed': 'YouTube did not allow the download ({msg})', 'yt.openApp': 'Open in the YouTube app', 'ep.code': 'S{s}:E{e}', 'pl.dlBazarr': 'Downloading from {p} ({l})…', 'pl.dlRefresh': 'Asking Jellyfin to rescan the episode…', 'pl.dlWaiting': 'Waiting for Jellyfin to list the new subtitle…', 'pl.dlNoAdmin': 'This Jellyfin profile cannot rescan items (needs admin)'
     },
     'pt-BR': {
       'nav.home': 'Início', 'nav.shows': 'Séries', 'nav.movies': 'Filmes', 'nav.search': 'Buscar', 'nav.downloads': 'Downloads',
@@ -200,7 +200,7 @@
       'tor.size': 'Tamanho', 'tor.done': 'Baixado', 'tor.speed': 'Velocidade', 'tor.etaL': 'Tempo restante', 'tor.seedsL': 'Seeds', 'tor.peersL': 'Peers',
       'tor.uploaded': 'Enviado', 'tor.ratioL': 'Proporção', 'tor.seedTime': 'Tempo semeando', 'tor.added': 'Adicionado', 'tor.tracker': 'Rastreador', 'tor.queue': 'Fila',
       'tor.files': 'Arquivos ({n})', 'tor.peerList': 'Peers ({n})', 'tor.none': 'Nada para mostrar',
-      'yt.close': '{t} · OK: abrir no app do YouTube · Voltar: fechar', 'yt.opening': 'Abrindo no app do YouTube…', 'ep.code': 'T{s}:E{e}', 'pl.dlBazarr': 'Baixando de {p} ({l})…', 'pl.dlRefresh': 'Pedindo ao Jellyfin para reescanear o episódio…', 'pl.dlWaiting': 'Aguardando o Jellyfin listar a nova legenda…', 'pl.dlNoAdmin': 'Este perfil do Jellyfin não pode reescanear itens (precisa ser admin)'
+      'yt.close': '{t} · OK: abrir no app do YouTube · Voltar: fechar', 'yt.opening': 'Abrindo no app do YouTube…', 'yt.preparing': 'Preparando trailer… {p}%', 'yt.failed': 'O YouTube não permitiu o download ({msg})', 'yt.openApp': 'Abrir no app do YouTube', 'ep.code': 'T{s}:E{e}', 'pl.dlBazarr': 'Baixando de {p} ({l})…', 'pl.dlRefresh': 'Pedindo ao Jellyfin para reescanear o episódio…', 'pl.dlWaiting': 'Aguardando o Jellyfin listar a nova legenda…', 'pl.dlNoAdmin': 'Este perfil do Jellyfin não pode reescanear itens (precisa ser admin)'
     }
   };
   var LANGS = [['pt-BR', 'Português (Brasil)'], ['en-US', 'English (US)']];

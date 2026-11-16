@@ -904,19 +904,52 @@
   }
   function openDetail(card) { if (card && card.tmdb) pushOverlay(Detail(card)); }
 
-  // Trailer: embedded page served by the Cinema server (YouTube needs a real origin). OK = open in the YouTube app.
-  function Trailer(youtubeId, title) {
+  // Trailer: the Cinema server downloads it (yt-dlp) and Cinema's own player plays it.
+  // If YouTube blocks the download, OK opens it in the TV's YouTube app instead.
+  function tvIp() {
+    return new Promise(function (resolve) {
+      try {
+        tizen.systeminfo.getPropertyValue('NETWORK', function (n) {
+          var kind = n && n.networkType === 'ETHERNET' ? 'ETHERNET_NETWORK' : 'WIFI_NETWORK';
+          tizen.systeminfo.getPropertyValue(kind, function (w) { resolve(w && w.ipAddress); }, function () { resolve(null); });
+        }, function () { resolve(null); });
+      } catch (e) { resolve(null); }
+    });
+  }
+  function Trailer(d) {
+    var id = d.trailerYouTubeId, timer = null;
     return {
+      st: { state: 'starting', progress: 0 },
       mount: function (el) {
-        el.innerHTML = '<div class="trailer"><iframe id="ytFrame" allow="autoplay; encrypted-media; fullscreen" frameborder="0" src="' +
-          esc(U.API + '/trailer/' + encodeURIComponent(youtubeId)) + '"></iframe>' +
-          '<div class="trailer-hint">' + esc(t('yt.close', { t: title })) + '</div></div>';
-        setTimeout(function () { window.focus(); }, 300);   // keep remote keys in the app, not the iframe
+        this.el = el; var self = this;
+        this.draw();
+        api('/api/trailer/prepare', { id: id }).then(function (st) { self.update(st); }).catch(function (e) { self.update({ state: 'error', error: e.message }); });
+        clearInterval(timer);
+        timer = setInterval(function () { api('/api/trailer/status/' + id).then(function (st) { self.update(st); }).catch(function () {}); }, 800);
+      },
+      unmount: function () { clearInterval(timer); },
+      update: function (st) {
+        this.st = st;
+        if (st.state === 'ready') {
+          clearInterval(timer); popOverlay();
+          Player.open({ stream: { url: U.API + st.url, subs: st.subs || [], subsBase: '/api/trailer/' + id + '/subs/' },
+                        title: d.title, logo: d.logo, backdrop: d.backdrop, type: d.type, tmdb: d.tmdb,
+                        subtitle: d.trailerName || t('title.trailer') }, null);
+          return;
+        }
+        if (st.state === 'error') clearInterval(timer);
+        if (stack[stack.length - 1] === this) this.draw();
+      },
+      draw: function () {
+        var st = this.st, err = st.state === 'error';
+        this.el.innerHTML = '<div class="backdrop dim" data-bg="' + esc(d.backdrop || '') + '"></div><div class="scrim"></div><div class="loading-center trailer-prep">' +
+          titleArt(d) + '<div class="tp-label">' + esc(err ? t('yt.failed', { msg: st.error || '' }) : t('yt.preparing', { p: st.progress || 0 })) + '</div>' +
+          (err ? '<div class="btn primary focus">' + t('yt.openApp') + '</div>' : '<div class="bar big"><i data-w="' + (st.progress || 0) + '%"></i></div>') + '</div>';
       },
       key: function (k) {
-        if (k === K.ENTER) {
+        if (k === K.ENTER && this.st.state === 'error') {
           toast(t('yt.opening'), 4000);
-          api('/api/trailer/youtube', { id: youtubeId }).catch(function (e) { toast(e.message, 6000); });
+          tvIp().then(function (ip) { return api('/api/trailer/youtube', { id: id, tvIp: ip }); }).catch(function (e) { toast(e.message, 6000); });
         }
         return true;
       }
@@ -1064,7 +1097,7 @@
                  season: isEp ? it.ParentIndexNumber : null, episode: isEp ? it.IndexNumber : null,
                  subtitle: isEp ? t('ep.code', { s: it.ParentIndexNumber, e: it.IndexNumber }) + ' · ' + it.Name : null, resume: true });
         } else if (b.id === 'signin') withJellyfin(function () { self.loadJellyfin(); });
-        else if (b.id === 'trailer') pushOverlay(Trailer(d.trailerYouTubeId, d.trailerName || d.title));
+        else if (b.id === 'trailer') pushOverlay(Trailer(d));
         else if (b.id === 'add' && !this.busy) {
           this.busy = true; toast(t('title.adding'));
           api('/api/add', { type: d.type, tmdb: d.tmdb }).then(function (r) {

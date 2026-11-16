@@ -1,5 +1,7 @@
 # Cinema backend: a single Node.js process, no dependencies.
 FROM node:22-alpine
+# ffmpeg merges trailer video+audio; yt-dlp is downloaded at runtime into /data/bin and kept updated
+RUN apk add --no-cache ffmpeg
 WORKDIR /app
 COPY package.json ./
 COPY server ./server

@@ -202,9 +202,9 @@
   };
 
   function ticks(ms) { return Math.round(ms * 10000); }
-  JF.reportStart = function (p) { return req('POST', '/Sessions/Playing', p).catch(function () {}); };
-  JF.reportProgress = function (p) { return req('POST', '/Sessions/Playing/Progress', p).catch(function () {}); };
-  JF.reportStop = function (p) { return req('POST', '/Sessions/Playing/Stopped', p).catch(function () {}); };
+  JF.reportStart = function (p) { return p ? req('POST', '/Sessions/Playing', p).catch(function () {}) : Promise.resolve(); };
+  JF.reportProgress = function (p) { return p ? req('POST', '/Sessions/Playing/Progress', p).catch(function () {}) : Promise.resolve(); };
+  JF.reportStop = function (p) { return p ? req('POST', '/Sessions/Playing/Stopped', p).catch(function () {}) : Promise.resolve(); };
   JF.stopTranscode = function (playSessionId) {
     return req('DELETE', '/Videos/ActiveEncodings?DeviceId=' + deviceId + '&PlaySessionId=' + playSessionId).catch(function () {});
   };

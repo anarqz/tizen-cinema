@@ -513,3 +513,9 @@ html.playing #backdrop, html.playing body > .scrim, html.playing #rail, html.pla
 .pl-panel.shelf .person .ph { width: 130px; height: 130px; line-height: 130px; border-radius: 65px; }
 .pl-panel.shelf .card.land { width: 320px; height: 180px; margin-right: 20px; }
 .pl-panel.shelf .ring { margin: 160px auto 0; }
+
+/* trailer preparation */
+.trailer-prep { width: 760px; }
+.trailer-prep .tp-label { font-size: 26px; font-weight: 600; margin: 10px 0 20px; color: rgba(255,255,255,.85); }
+.trailer-prep .bar.big { width: 520px; margin: 0 auto; }
+.trailer-prep .bar.big i { background: var(--accent); }

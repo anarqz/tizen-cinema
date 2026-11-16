@@ -133,6 +133,7 @@
       (ctx.subtitle ? '<div class="pl-subtitle">' + esc(ctx.subtitle) + '</div>' : '');
     shelf = null;
     subs = { index: null, events: [], offset: 0, ptr: 0 }; segments = []; nextEp = null; nextState = null; skipDismissed = {}; candidates = null;
+    if (ctx.stream) { item = { UserData: {} }; return start(0); }   // trailers: a plain file from the Cinema server
     JF.item(ctx.itemId).then(function (it) {
       item = it;
       var pos = it.UserData && it.UserData.PlaybackPositionTicks ? it.UserData.PlaybackPositionTicks / 10000 : 0;
@@ -154,7 +155,11 @@
   function start(startMs, opts) {
     opts = opts || {};
     spin(true); $('plPrompt').classList.add('hidden'); ui.zone = 'bar';
-    return JF.playbackInfo(ctx.itemId, { startMs: startMs, audioIndex: opts.audioIndex, subtitleIndex: opts.burnSubtitle, forceTranscode: opts.forceTranscode })
+    var infoP = ctx.stream ? Promise.resolve({ url: ctx.stream.url, method: 'DirectPlay', mediaSource: { Id: 'stream' }, playSessionId: null,
+        defaultAudio: null, defaultSubtitle: null,
+        streams: (ctx.stream.subs || []).map(function (x, i) { return { Type: 'Subtitle', Index: i, Language: x.lang, DisplayTitle: x.label, IsExternal: true, Codec: 'vtt' }; }) })
+      : JF.playbackInfo(ctx.itemId, { startMs: startMs, audioIndex: opts.audioIndex, subtitleIndex: opts.burnSubtitle, forceTranscode: opts.forceTranscode });
+    return infoP
       .then(function (pi) {
         info = pi;
         if (audioIndex == null) audioIndex = pi.defaultAudio;
@@ -169,8 +174,8 @@
         JF.reportStart(report('start'));
         clearInterval(tickTimer); tickTimer = setInterval(tick, 200);
         clearInterval(reportTimer); reportTimer = setInterval(function () { JF.reportProgress(report('timeupdate')); }, 10000);
-        JF.segments(ctx.itemId).then(function (s) { segments = s; });
-        if (item.Type === 'Episode') JF.nextEpisode(item).then(function (n) { nextEp = n; drawButtons(); });
+        if (!ctx.stream) JF.segments(ctx.itemId).then(function (s) { segments = s; });
+        if (!ctx.stream && item.Type === 'Episode') JF.nextEpisode(item).then(function (n) { nextEp = n; drawButtons(); });
         drawButtons(); drawLinks(); showUi();
       })
       .catch(function (e) { if (!opts.forceTranscode && info && info.method === 'DirectPlay') return onEngineError(e, startMs, opts); fail(e); });
@@ -189,6 +194,7 @@
   function fail(e) { spin(false); U.toast(t('pl.cantPlay', { msg: e.message }), 7000); P.close(); }
 
   function report(event) {
+    if (ctx.stream) return null;
     var p = { ItemId: ctx.itemId, MediaSourceId: info.mediaSource.Id, PlaySessionId: info.playSessionId,
       PositionTicks: JF.ticks(engine ? engine.time() : 0), CanSeek: true, IsPaused: engine ? engine.paused() : false,
       PlayMethod: info.method, AudioStreamIndex: audioIndex, SubtitleStreamIndex: subs.index == null ? -1 : subs.index, EventName: event };
@@ -239,7 +245,9 @@
       var at = engine.time(); engine.stop();
       return start(at, { burnSubtitle: index, forceTranscode: true, audioIndex: audioIndex });
     }
-    return JF.subtitleEvents(ctx.itemId, info.mediaSource.Id, index).then(function (ev) {
+    var load = ctx.stream ? U.api(ctx.stream.subsBase + encodeURIComponent(s.Language)).then(function (r) { return r.events; })
+      : JF.subtitleEvents(ctx.itemId, info.mediaSource.Id, index);
+    return load.then(function (ev) {
       if (subs.index === index) subs.events = ev;
     }).catch(function (e) { U.toast(t('pl.subFail', { msg: e.message }), 5000); });
   }
@@ -328,7 +336,7 @@
   }
   // "Ver série" / "Ver temporada" (episodes only), above the progress bar.
   function links() {
-    if (!ctx || !ctx.tmdb) return [];
+    if (!ctx || !ctx.tmdb || ctx.stream) return [];
     if (ctx.type === 'movie') return [{ id: 'movie', label: t('pl.movie') }];
     var l = [{ id: 'series', label: t('pl.series') }];
     if (ctx.season != null) l.push({ id: 'season', label: t('pl.season', { n: ctx.season }) });
@@ -475,6 +483,7 @@
     var adj = [{ kind: 'search', label: t('pl.searchSubs') }, { kind: 'sync', label: t('pl.sync') },
       { kind: 'delay', d: -250, label: t('pl.earlier') }, { kind: 'delay', d: 250, label: t('pl.later') },
       { kind: 'delay0', label: t('pl.delay', { d: (off > 0 ? '+' : '') + I18n.num(off, 2) }) + (off ? '  ' + t('pl.reset') : '') }];
+    if (ctx.stream) adj = adj.filter(function (x) { return x.kind !== 'search' && x.kind !== 'sync'; });
     return [{ title: t('pl.audio'), items: aud }, { title: t('pl.subtitles'), items: sub }, { title: t('pl.subAdjust'), items: adj }];
   }
   function openPanel(name) {

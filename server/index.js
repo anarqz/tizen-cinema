@@ -15,6 +15,7 @@ for (const f of [process.env.CINEMA_ENV_FILE, path.join(__dirname, '..', '.env')
   }
 }
 const config = require('./config');
+const trailers = require('./trailers').create(config.DATA_DIR);
 const VERSION = require('../package.json').version;
 const PORT = Number(process.env.PORT || 3817);
 const C = () => config.get();
@@ -842,6 +843,13 @@ const routes = [
   ['GET', /^\/api\/sync\/attention$/, () => attention()],
   ['POST', /^\/api\/sync\/resolve$/, body(resolve)],
   ['POST', /^\/api\/trailer\/youtube$/, async (m, u, req) => trailerOnTv(req, await readBody(req))],
+  ['POST', /^\/api\/trailer\/prepare$/, async (m, u, req) => {
+    const { id } = await readBody(req);
+    const l = lang(), subLangs = [...new Set([l, l.slice(0, 2), 'en'])].join(',');
+    return trailers.prepare(id, subLangs);
+  }],
+  ['GET', /^\/api\/trailer\/status\/([\w-]{6,20})$/, (m) => trailers.status(m[1])],
+  ['GET', /^\/api\/trailer\/([\w-]{6,20})\/subs\/([\w-]{2,10})$/, (m) => trailers.subtitles(m[1], m[2])],
 ];
 
 const WEB = path.join(__dirname, 'web');
@@ -849,6 +857,8 @@ http.createServer(async (req, res) => {
   const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type, X-Cinema-Pin', 'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS' };
   if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
   const u = new URL(req.url, 'http://x');
+  const tf = req.method === 'GET' && u.pathname.match(/^\/trailers\/([\w-]{6,20})\.mp4$/);
+  if (tf) return trailers.serve(req, res, tf[1]);
   const tm = req.method === 'GET' && u.pathname.match(/^\/trailer\/([\w-]{6,20})$/);
   if (tm) { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Referrer-Policy': 'strict-origin-when-cross-origin' }); return res.end(trailerPage(tm[1])); }
   if (req.method === 'GET' && (u.pathname === '/' || u.pathname === '/settings')) {
