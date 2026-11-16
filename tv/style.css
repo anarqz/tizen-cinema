@@ -449,3 +449,57 @@ html.playing #backdrop, html.playing body > .scrim, html.playing #rail, html.pla
 .pl-dl.error { background: rgba(255,91,74,.16); color: #ff8a7a; }
 .mini-ring { display: inline-block; width: 20px; height: 20px; margin-right: 12px; vertical-align: -3px; border-radius: 50%;
   border: 3px solid rgba(255,204,52,.3); border-top-color: var(--accent); -webkit-animation: spin .9s linear infinite; animation: spin .9s linear infinite; }
+
+/* downloads: torrent client */
+.dl-top { position: absolute; left: 170px; top: 196px; white-space: nowrap; }
+.dl-top .btn { margin-right: 12px; }
+.dl-top .btn.sync { background: rgba(255,204,52,.16); color: var(--accent); }
+.dl-top .btn.sync.focus { background: var(--accent); color: #0b0b0f; }
+.dl-chips { white-space: nowrap; }
+.list + .dl-chips, .dl-top + .dl-chips { position: absolute; left: 170px; top: 272px; }
+.chip { display: inline-block; padding: 9px 20px; margin-right: 10px; border-radius: 22px; font-size: 21px; font-weight: 600;
+  color: rgba(255,255,255,.7); box-shadow: inset 0 0 0 1px rgba(255,255,255,.2); }
+.chip small { opacity: .6; margin-left: 4px; font-size: 18px; }
+.chip.on { color: #fff; background: rgba(255,255,255,.14); box-shadow: none; }
+.chip.warn { color: #ffb4a8; }
+.chip.focus { background: #fff; color: #0b0b0f; }
+.dl-list { top: 350px; }
+.li.tor { padding: 14px 20px; }
+.li.tor .t { font-size: 24px; }
+.li.tor .s { font-size: 19px; }
+.li.tor .r b { font-size: 24px; }
+.li.tor .r .spd { font-size: 18px; opacity: .75; }
+.ticon { width: 46px; height: 46px; flex: none; margin-right: 18px; border-radius: 23px; text-align: center; line-height: 46px; font-size: 18px; font-weight: 900;
+  background: rgba(255,255,255,.12); color: #fff; }
+.ticon.dl { background: #3d8bfd; } .ticon.seed { background: #2fbf71; color: #04140b; } .ticon.paused { background: rgba(255,255,255,.2); }
+.ticon.err { background: #ff5b4a; } .ticon.check { background: #f0a020; color: #1b1000; }
+.ticon.inline { display: inline-block; width: 34px; height: 34px; line-height: 34px; font-size: 14px; margin: 0 6px 0 0; vertical-align: 2px; }
+.bar.dl i { background: #3d8bfd; } .bar.seed i { background: #2fbf71; } .bar.paused i { background: rgba(255,255,255,.45); }
+.bar.err i { background: #ff5b4a; } .bar.check i { background: #f0a020; }
+.li.focus .bar i { background: #0b0b0f; }
+.btn.danger { color: #ff8a7a; }
+.btn.danger.focus { background: #ff5b4a; color: #fff; }
+.tor-title { right: 96px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 42px; }
+.tor-wrap { position: absolute; left: 170px; right: 96px; top: 210px; bottom: 40px; display: flex; }
+.tor-left { width: 820px; flex: none; margin-right: 50px; }
+.bar.big { height: 12px; border-radius: 6px; margin: 4px 0 30px; }
+.tor-facts { -webkit-columns: 2; columns: 2; -webkit-column-gap: 40px; column-gap: 40px; }
+.tor-acts { margin-top: 20px; }
+.tor-acts .btn { margin: 0 10px 12px 0; }
+.tor-right { flex: 1; min-width: 0; }
+.tor-right .dl-chips { margin-bottom: 18px; }
+.tor-list { position: absolute; top: 70px; bottom: 0; overflow: hidden; width: 100%; }
+.tor-right { position: relative; }
+.li.slim { padding: 12px 18px; margin-bottom: 8px; }
+.li.slim .t { font-size: 21px; }
+.li.slim .r { font-size: 19px; }
+.li.dim { opacity: .45; }
+
+/* episode import blocked */
+.pill.blocked { background: #ff5b4a; color: #fff; }
+/* search: three result columns, and room so the focused card's frame isn't clipped */
+.results { left: 676px; }
+.results-inner { padding: 14px 0 0 18px; }
+.results .card.land { width: 306px; height: 172px; margin: 0 16px 22px 0; }
+.results .card .mini-logo { max-width: 190px; max-height: 54px; }
+.results .card .mini-title { font-size: 21px; }

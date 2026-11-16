@@ -497,56 +497,266 @@
     }).then(function () { sync.running = false; attentionCache.at = 0; if (current === screen) screen.load(); });
   }
 
-  var Downloads = ListScreen({
-    titleKey: 'nav.downloads', refreshMs: 3000, emptyKey: 'dl.empty',
-    fetch: function () { return Promise.all([api('/api/downloads'), loadAttention()]).then(function (r) { r[0].attention = r[1]; return r[0]; }); },
-    enter: function (it, screen) {
-      if (it.kind === 'sync') return runSync(screen);
-      if (it.kind !== 'attention') return;
-      if (!it.action) return toast(t('dl.resolveIn', { svc: it.svc === 'sonarr' ? 'Sonarr' : 'Radarr', msg: it.raw }), 7000);
-      if (sync.armed !== it.downloadId) { sync.armed = it.downloadId; return toast(t('common.pressOkAgain', { what: t('action.' + it.action).toLowerCase() }), 5000); }
-      sync.armed = null; toast(t('dl.resolving'), 4000);
-      api('/api/sync/resolve', { svc: it.svc, action: it.action, queueIds: it.queueIds, downloadId: it.downloadId, movieId: it.movieId, seriesId: it.seriesId })
-        .then(function () { toast(t('dl.done.' + it.action), 5000); attentionCache.at = 0; setTimeout(function () { screen.load(); }, 3000); })
-        .catch(function (e) { toast(e.message, 7000); });
+  // ── Downloads: torrent client (Deluge) + Sonarr/Radarr queue + blocked imports ──
+  var LIMITS = [-1, 1024, 5120, 10240, 25600];      // KiB/s, Deluge's unit
+  function limitLabel(v) { return v > 0 ? (v >= 1024 ? I18n.num(v / 1024, v % 1024 ? 1 : 0) + ' MB/s' : v + ' KB/s') : '∞'; }
+  function nextLimit(v) { var i = LIMITS.indexOf(v > 0 ? v : -1); return LIMITS[(i + 1) % LIMITS.length]; }
+  var TSTATE = { Downloading: ['dl', '▼'], Seeding: ['seed', '▲'], Paused: ['paused', '❚❚'], Error: ['err', '!'], Checking: ['check', '⟳'],
+                 Queued: ['queued', '⋯'], Allocating: ['check', '⟳'], Moving: ['check', '⇢'] };
+  function tCls(s) { return (TSTATE[s] || ['queued'])[0]; }
+  function tIcon(s) { return (TSTATE[s] || ['', '•'])[1]; }
+  function tStateLabel(s) { return I18n.has('tor.state.' + s) ? t('tor.state.' + s) : s; }
+  function duration(sec) {
+    if (!sec || sec < 0) return '';
+    var d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
+    return d ? d + 'd ' + h + 'h' : h ? h + 'h ' + m + 'min' : m + ' min';
+  }
+  var DL_FILTERS = ['all', 'downloading', 'seeding', 'paused', 'error', 'queue', 'attention'];
+  function inFilter(f, x) {
+    if (f === 'all') return true;
+    if (f === 'downloading') return x.state === 'Downloading' || x.state === 'Checking' || x.state === 'Allocating' || (x.state === 'Queued' && x.progress < 100);
+    if (f === 'seeding') return x.state === 'Seeding' || (x.state === 'Queued' && x.progress >= 100);
+    if (f === 'paused') return x.state === 'Paused';
+    if (f === 'error') return x.state === 'Error' || !!x.message;
+    return false;
+  }
+
+  var Downloads = {
+    data: null, queue: [], attention: [], filter: 0, zone: 'list', top: 0, i: 0, timer: null, armed: null, error: null,
+    mount: function (el) {
+      this.el = el; var self = this; setBackdrop('');
+      if (!this.data) el.innerHTML = '<div class="page-title">' + t('nav.downloads') + '</div><div class="loading-center"><div class="ring"></div></div>';
+      else this.draw();
+      this.load();
+      clearInterval(this.timer);
+      this.timer = setInterval(function () { if (current === self && !overlayOpen() && !Player.active) self.load(); }, 2500);
     },
-    build: function (d) {
-      var items = [{ kind: 'sync' }], h = '<div class="li sync-row"><div class="grow"><div class="t">' + esc(syncLabel()) + '</div>' +
-        '<div class="s">' + esc(t('dl.syncHint')) + '</div></div></div>';
-      if (d.attention && d.attention.length) {
-        h += '<div class="section-title">' + t('dl.attention') + '</div>';
-        d.attention.forEach(function (a) {
-          items.push({ kind: 'attention', svc: a.svc, action: a.action, queueIds: a.queueIds, downloadId: a.downloadId, movieId: a.movieId, seriesId: a.seriesId, raw: a.raw });
-          var name = (a.name || a.title) + (a.episodes > 1 ? ' · ' + t('dl.episodes', { n: a.episodes }) : '');
-          var reason = a.reason !== 'other' && I18n.has('reason.' + a.reason) ? t('reason.' + a.reason) : a.raw;
-          h += '<div class="li attn"><div class="grow"><div class="t">⚠  ' + esc(name) + '</div><div class="s">' + esc(reason) + ' · ' + esc(a.title) + '</div></div>' +
-            '<div class="r">' + esc(a.action ? t('action.' + a.action) : (a.svc === 'sonarr' ? 'Sonarr' : 'Radarr')) + '</div></div>';
-        });
+    unmount: function () { clearInterval(this.timer); },
+    load: function () {
+      var self = this;
+      Promise.all([api('/api/torrents').catch(function (e) { return { error: e.message, torrents: [], stats: {} }; }),
+                   api('/api/downloads').catch(function () { return { queue: [] }; }), loadAttention()]).then(function (r) {
+        self.data = r[0]; self.queue = r[1].queue || []; self.attention = r[2] || [];
+        if (current === self && !overlayOpen()) self.draw();
+      });
+    },
+    items: function () {
+      var f = DL_FILTERS[this.filter];
+      if (f === 'queue') return this.queue;
+      if (f === 'attention') return this.attention;
+      return ((this.data && this.data.torrents) || []).filter(function (x) { return inFilter(f, x); });
+    },
+    count: function (f) {
+      if (f === 'queue') return this.queue.length;
+      if (f === 'attention') return this.attention.length;
+      return ((this.data && this.data.torrents) || []).filter(function (x) { return inFilter(f, x); }).length;
+    },
+    topButtons: function () {
+      var st = (this.data && this.data.stats) || {};
+      return [{ id: 'sync', label: syncLabel(), cls: 'sync' },
+              this.data && this.data.paused ? { id: 'resumeAll', label: '▶  ' + t('tor.resumeAll') } : { id: 'pauseAll', label: '❚❚  ' + t('tor.pauseAll') },
+              { id: 'limit', label: '↓  ' + t('tor.limit', { v: limitLabel(st.limitDown) }) }];
+    },
+    torrentRow: function (x) {
+      var cls = tCls(x.state), bits = [tStateLabel(x.state), bytes(x.done) + ' / ' + bytes(x.size)];
+      if (x.eta) bits.push(t('tor.eta', { t: duration(x.eta) }));
+      bits.push(t('tor.seeds', { a: x.seeds || 0, b: x.seedsTotal > 0 ? x.seedsTotal : 0 }), t('tor.peers', { a: x.peers || 0, b: x.peersTotal > 0 ? x.peersTotal : 0 }),
+                t('tor.ratio', { r: I18n.num(x.ratio > 0 ? x.ratio : 0, 2) }));
+      if (x.label) bits.push(x.label);
+      var speeds = (x.down ? '↓ ' + bytes(x.down) + '/s' : '') + (x.down && x.up ? '  ' : '') + (x.up ? '↑ ' + bytes(x.up) + '/s' : '');
+      return '<div class="li tor"><div class="ticon ' + cls + '">' + tIcon(x.state) + '</div><div class="grow"><div class="t">' + esc(x.name) + '</div>' +
+        '<div class="s">' + esc(bits.join(' · ')) + (x.message ? ' · <span class="rej">' + esc(x.message) + '</span>' : '') + '</div>' +
+        '<div class="bar ' + cls + '"><i data-w="' + x.progress + '%"></i></div></div>' +
+        '<div class="r"><b>' + I18n.num(x.progress, x.progress < 100 && x.progress % 1 ? 1 : 0) + '%</b><br><span class="spd">' + (speeds || '—') + '</span></div></div>';
+    },
+    queueRow: function (q) {
+      var pct = q.size ? Math.round(100 * (1 - q.left / q.size)) : 0;
+      var title = (q.title || '') + (q.season != null ? ' · ' + t('ep.code', { s: q.season, e: q.episode }) : '');
+      return '<div class="li"><div class="grow"><div class="t">' + esc(title) + '</div><div class="s">' + esc(q.svc) + ' · ' + esc(q.status) +
+        (q.messages && q.messages.length ? ' · ' + esc(q.messages[0]) : '') + '</div><div class="bar"><i data-w="' + pct + '%"></i></div></div>' +
+        '<div class="r">' + pct + '%' + (q.timeleft ? '<br>' + esc(q.timeleft) : '') + '</div></div>';
+    },
+    attentionRow: function (a) {
+      var name = (a.name || a.title) + (a.episodes > 1 ? ' · ' + t('dl.episodes', { n: a.episodes }) : '');
+      var reason = a.reason !== 'other' && I18n.has('reason.' + a.reason) ? t('reason.' + a.reason) : a.raw;
+      return '<div class="li attn"><div class="grow"><div class="t">⚠  ' + esc(name) + '</div><div class="s">' + esc(reason) + ' · ' + esc(a.title) + '</div></div>' +
+        '<div class="r">' + esc(a.action ? t('action.' + a.action) : (a.svc === 'sonarr' ? 'Sonarr' : 'Radarr')) + '</div></div>';
+    },
+    draw: function () {
+      var self = this, st = (this.data && this.data.stats) || {}, f = DL_FILTERS[this.filter], items = this.items();
+      this.i = Math.min(this.i, Math.max(0, items.length - 1));
+      var stats = this.data && !this.data.error
+        ? '↓ ' + bytes(st.down) + '/s   ↑ ' + bytes(st.up) + '/s   ·   ' + t('tor.connections', { n: st.connections || 0 }) + '   ·   ' + t('tor.free', { s: bytes(st.freeSpace) })
+        : (this.data && this.data.error ? t('common.error', { msg: this.data.error }) : '');
+      var top = this.topButtons().map(function (b, n) {
+        return '<div class="btn small' + (b.cls ? ' ' + b.cls : '') + (self.zone === 'top' && self.top === n ? ' focus' : '') + '">' + esc(b.label) + '</div>';
+      }).join('');
+      var chips = DL_FILTERS.map(function (k, n) {
+        var c = self.count(k); if (k === 'attention' && !c) return '';
+        return '<div class="chip' + (n === self.filter ? ' on' : '') + (self.zone === 'filters' && n === self.filter ? ' focus' : '') + (k === 'attention' ? ' warn' : '') + '">' +
+          esc(t('tor.f.' + k)) + ' <small>' + c + '</small></div>';
+      }).join('');
+      var rows = items.map(function (x) {
+        return f === 'queue' ? self.queueRow(x) : f === 'attention' ? self.attentionRow(x) : self.torrentRow(x);
+      }).join('') || '<div class="spinner flush">' + t('tor.empty') + '</div>';
+      this.el.innerHTML = '<div class="page-title">' + t('nav.downloads') + '</div><div class="page-sub">' + esc(stats) + '</div>' +
+        '<div class="dl-top">' + top + '</div><div class="dl-chips">' + chips + '</div>' +
+        '<div class="list dl-list"><div class="list-inner" id="listInner">' + rows + '</div></div>';
+      var lis = this.el.querySelectorAll('.dl-list .li');
+      if (this.zone === 'list' && focusArea === 'content' && lis[this.i]) lis[this.i].classList.add('focus');
+      if (lis[this.i]) $('listInner').style.transform = 'translateY(' + (-Math.max(0, lis[this.i].offsetTop - 260)) + 'px)';
+    },
+    focus: function () { this.draw(); },
+    visibleFilters: function () { var self = this; return DL_FILTERS.map(function (k, n) { return n; }).filter(function (n) { return DL_FILTERS[n] !== 'attention' || self.count('attention'); }); },
+    runTop: function (b) {
+      var self = this, st = (this.data && this.data.stats) || {};
+      if (b.id === 'sync') return runSync(this);
+      var call = b.id === 'pauseAll' ? api('/api/torrents/session', { action: 'pause' })
+        : b.id === 'resumeAll' ? api('/api/torrents/session', { action: 'resume' })
+        : api('/api/torrents/session', { action: 'limit', down: nextLimit(st.limitDown) });
+      call.then(function () { setTimeout(function () { self.load(); }, 600); }).catch(function (e) { toast(e.message, 6000); });
+    },
+    toggle: function (x) {
+      var self = this;
+      api('/api/torrent/' + x.hash + '/' + (x.state === 'Paused' ? 'resume' : 'pause'), {})
+        .then(function () { toast(x.state === 'Paused' ? t('tor.resumed') : t('tor.paused'), 2500); setTimeout(function () { self.load(); }, 600); })
+        .catch(function (e) { toast(e.message, 6000); });
+    },
+    key: function (k) {
+      var items = this.items(), f = DL_FILTERS[this.filter], vis = this.visibleFilters(), pos = vis.indexOf(this.filter);
+      if (this.zone === 'top') {
+        if (k === K.LEFT) { if (this.top === 0) return false; this.top--; }
+        else if (k === K.RIGHT) { if (this.top < 2) this.top++; }
+        else if (k === K.DOWN) this.zone = 'filters';
+        else if (k === K.ENTER) { this.runTop(this.topButtons()[this.top]); return true; }
+      } else if (this.zone === 'filters') {
+        if (k === K.LEFT) { if (pos <= 0) return false; this.filter = vis[pos - 1]; this.i = 0; }
+        else if (k === K.RIGHT) { if (pos < vis.length - 1) { this.filter = vis[pos + 1]; this.i = 0; } }
+        else if (k === K.UP) this.zone = 'top';
+        else if (k === K.DOWN) { if (items.length) this.zone = 'list'; }
+      } else {
+        var x = items[this.i];
+        if (k === K.UP) { if (this.i > 0) this.i--; else this.zone = 'filters'; }
+        else if (k === K.DOWN) { if (this.i < items.length - 1) this.i++; }
+        else if (k === K.LEFT) return false;
+        else if ((k === K.PLAYPAUSE || k === K.PLAY || k === K.PAUSE) && x && x.hash) { this.toggle(x); return true; }
+        else if (k === K.ENTER && x) {
+          if (x.hash) { pushOverlay(TorrentDetail(x.hash, x.name)); return true; }
+          if (f === 'attention') { this.resolveAttention(x); return true; }
+        }
       }
-      if (d.torrents && d.torrents.length) {
-        h += '<div class="section-title">Deluge</div>';
-        d.torrents.forEach(function (x) {
-          items.push(x);
-          h += '<div class="li"><div class="grow"><div class="t">' + esc(x.name) + '</div><div class="s">' + esc(x.state) +
-            (x.label ? ' · ' + esc(x.label) : '') + ' · ' + bytes(x.total_size) + (x.num_seeds != null ? ' · ' + x.num_seeds + ' seeds' : '') +
-            '</div><div class="bar"><i data-w="' + Math.round(x.progress || 0) + '%"></i></div></div><div class="r">' +
-            Math.round(x.progress || 0) + '%' + (x.state === 'Downloading' ? '<br>↓ ' + bytes(x.download_payload_rate) + '/s · ' + eta(x.eta) : '') + '</div></div>';
-        });
-      }
-      if (d.queue && d.queue.length) {
-        h += '<div class="section-title">' + t('dl.queue') + '</div>';
-        d.queue.forEach(function (q) {
-          items.push(q);
-          var pct = q.size ? Math.round(100 * (1 - q.left / q.size)) : 0;
-          var title = (q.title || '') + (q.season != null ? ' · ' + t('ep.code', { s: q.season, e: q.episode }) : '');
-          h += '<div class="li"><div class="grow"><div class="t">' + esc(title) + '</div><div class="s">' + esc(q.svc) + ' · ' + esc(q.status) +
-            (q.messages && q.messages.length ? ' · ' + esc(q.messages[0]) : '') + '</div><div class="bar"><i data-w="' + pct + '%"></i></div></div>' +
-            '<div class="r">' + pct + '%' + (q.timeleft ? '<br>' + esc(q.timeleft) : '') + '</div></div>';
-        });
-      }
-      return { items: items, html: h, sub: d.speed ? '↓ ' + bytes(d.speed.down) + '/s   ↑ ' + bytes(d.speed.up) + '/s' : '' };
+      this.draw(); return true;
+    },
+    resolveAttention: function (it) {
+      var self = this;
+      if (!it.action) return toast(t('dl.resolveIn', { svc: it.svc === 'sonarr' ? 'Sonarr' : 'Radarr', msg: it.raw }), 7000);
+      if (this.armed !== it.downloadId) { this.armed = it.downloadId; return toast(t('common.pressOkAgain', { what: t('action.' + it.action).toLowerCase() }), 5000); }
+      this.armed = null; toast(t('dl.resolving'), 4000);
+      api('/api/sync/resolve', { svc: it.svc, action: it.action, queueIds: it.queueIds, downloadId: it.downloadId, movieId: it.movieId, seriesId: it.seriesId })
+        .then(function () { toast(t('dl.done.' + it.action), 5000); attentionCache.at = 0; setTimeout(function () { self.load(); }, 3000); })
+        .catch(function (e) { toast(e.message, 7000); });
     }
-  });
+  };
+
+  // Torrent detail: stats, actions, files and peers. Refreshes every 2 s while open.
+  function TorrentDetail(hash, name) {
+    return {
+      d: null, zone: 'act', a: 0, tab: 0, li: 0, armed: null, timer: null,
+      mount: function (el) {
+        this.el = el; var self = this;
+        if (!this.d) el.innerHTML = '<div class="page-title tor-title">' + esc(name) + '</div><div class="loading-center"><div class="ring"></div></div>';
+        else this.draw();
+        this.load();
+        clearInterval(this.timer);
+        this.timer = setInterval(function () { if (stack[stack.length - 1] === self) self.load(); }, 2000);
+      },
+      unmount: function () { clearInterval(this.timer); },
+      load: function () {
+        var self = this;
+        api('/api/torrent/' + hash).then(function (d) { self.d = d; if (stack[stack.length - 1] === self) self.draw(); })
+          .catch(function (e) { toast(e.message, 5000); });
+      },
+      actions: function () {
+        var d = this.d;
+        return [d.state === 'Paused' ? { id: 'resume', label: '▶  ' + t('tor.resume') } : { id: 'pause', label: '❚❚  ' + t('tor.pause') },
+          { id: 'recheck', label: '⟳  ' + t('tor.recheck') }, { id: 'reannounce', label: '↻  ' + t('tor.reannounce') },
+          { id: 'top', label: '⤒  ' + t('tor.top') }, { id: 'limit', label: '↓  ' + t('tor.limit', { v: limitLabel(d.limitDown) }) },
+          { id: 'remove', label: t('tor.remove'), danger: true }, { id: 'removeData', label: t('tor.removeData'), danger: true }];
+      },
+      list: function () { return this.tab === 0 ? this.d.files : this.d.peers; },
+      draw: function () {
+        var d = this.d, self = this, cls = tCls(d.state);
+        var facts = [
+          [t('tor.size'), bytes(d.size)], [t('tor.done'), bytes(d.done) + ' (' + I18n.num(d.progress, 1) + '%)'],
+          [t('tor.speed'), '↓ ' + bytes(d.down) + '/s   ↑ ' + bytes(d.up) + '/s'], [t('tor.etaL'), d.eta ? duration(d.eta) : '—'],
+          [t('tor.seedsL'), (d.seeds || 0) + ' (' + Math.max(0, d.seedsTotal || 0) + ')'], [t('tor.peersL'), (d.peers || 0) + ' (' + Math.max(0, d.peersTotal || 0) + ')'],
+          [t('tor.uploaded'), bytes(d.uploaded)], [t('tor.ratioL'), I18n.num(d.ratio > 0 ? d.ratio : 0, 2)],
+          [t('tor.seedTime'), duration(d.seedingTime) || '—'], [t('tor.added'), d.added ? fmtDate(new Date(d.added * 1000).toISOString()) : '—'],
+          [t('tor.tracker'), d.tracker || '—'], [t('tor.queue'), d.queue >= 0 ? '#' + (d.queue + 1) : '—']
+        ];
+        var acts = this.actions().map(function (b, n) {
+          return '<div class="btn small' + (b.danger ? ' danger' : '') + (self.zone === 'act' && n === self.a ? ' focus' : '') + '">' + esc(b.label) + '</div>';
+        }).join('');
+        var tabs = [t('tor.files', { n: d.files.length }), t('tor.peerList', { n: d.peers.length })].map(function (l, n) {
+          return '<div class="chip' + (n === self.tab ? ' on' : '') + (self.zone === 'tab' && n === self.tab ? ' focus' : '') + '">' + esc(l) + '</div>';
+        }).join('');
+        var rows = this.tab === 0
+          ? d.files.map(function (f) {
+              return '<div class="li slim' + (f.skipped ? ' dim' : '') + '"><div class="grow"><div class="t">' + esc(f.path.split('/').pop()) + '</div>' +
+                '<div class="bar ' + cls + '"><i data-w="' + f.progress + '%"></i></div></div><div class="r">' + bytes(f.size) + '<br>' + I18n.num(f.progress, 0) + '%</div></div>';
+            }).join('')
+          : d.peers.map(function (p) {
+              return '<div class="li slim"><div class="grow"><div class="t">' + esc((p.country ? p.country + ' · ' : '') + (p.client || '?')) + (p.seed ? ' · seed' : '') + '</div>' +
+                '<div class="bar ' + cls + '"><i data-w="' + p.progress + '%"></i></div></div><div class="r">↓ ' + bytes(p.down) + '/s<br>↑ ' + bytes(p.up) + '/s</div></div>';
+            }).join('');
+        this.el.innerHTML = '<div class="page-title tor-title">' + esc(d.name) + '</div>' +
+          '<div class="page-sub"><span class="ticon inline ' + cls + '">' + tIcon(d.state) + '</span> ' + esc(tStateLabel(d.state)) + (d.label ? ' · ' + esc(d.label) : '') +
+          (d.message ? ' · <span class="rej">' + esc(d.message) + '</span>' : '') + '</div>' +
+          '<div class="tor-wrap"><div class="tor-left"><div class="bar big ' + cls + '"><i data-w="' + d.progress + '%"></i></div><div class="tor-facts">' +
+          facts.map(function (f) { return '<div class="fact"><b>' + esc(f[0]) + '</b><span>' + esc(f[1]) + '</span></div>'; }).join('') + '</div>' +
+          '<div class="tor-acts">' + acts + '</div></div>' +
+          '<div class="tor-right"><div class="dl-chips">' + tabs + '</div><div class="tor-list"><div class="list-inner" id="torInner">' +
+          (rows || '<div class="hint">' + t('tor.none') + '</div>') + '</div></div></div></div>';
+        var lis = this.el.querySelectorAll('.tor-list .li');
+        if (this.zone === 'list' && lis[this.li]) { lis[this.li].classList.add('focus'); $('torInner').style.transform = 'translateY(' + (-Math.max(0, lis[this.li].offsetTop - 300)) + 'px)'; }
+      },
+      key: function (k) {
+        if (!this.d) return true;
+        var acts = this.actions(), n = this.list().length;
+        if (this.zone === 'act') {
+          if (k === K.LEFT) { if (this.a > 0) this.a--; }
+          else if (k === K.RIGHT) { if (this.a < acts.length - 1) this.a++; else this.zone = 'tab'; }
+          else if (k === K.ENTER) { this.run(acts[this.a]); return true; }
+          else if (k === K.PLAYPAUSE || k === K.PLAY || k === K.PAUSE) { this.run(acts[0]); return true; }
+        } else if (this.zone === 'tab') {
+          if (k === K.LEFT) { if (this.tab > 0) this.tab--; else this.zone = 'act'; }
+          else if (k === K.RIGHT) { if (this.tab < 1) this.tab++; }
+          else if (k === K.DOWN) { if (n) { this.zone = 'list'; this.li = 0; } }
+          this.li = 0;
+        } else {
+          if (k === K.UP) { if (this.li > 0) this.li--; else this.zone = 'tab'; }
+          else if (k === K.DOWN) { if (this.li < n - 1) this.li++; }
+          else if (k === K.LEFT) this.zone = 'act';
+        }
+        this.draw(); return true;
+      },
+      run: function (b) {
+        var self = this, d = this.d;
+        if (b.danger) {
+          if (this.armed !== b.id) { this.armed = b.id; return toast(t('common.pressOkAgain', { what: b.label.toLowerCase() }), 5000); }
+          this.armed = null;
+          return api('/api/torrent/' + hash + '/remove', { withData: b.id === 'removeData' }).then(function () {
+            toast(t('tor.removed'), 4000); popOverlay(); Downloads.load();
+          }).catch(function (e) { toast(e.message, 6000); });
+        }
+        this.armed = null;
+        var body = b.id === 'limit' ? { down: nextLimit(d.limitDown) } : {};
+        api('/api/torrent/' + hash + '/' + b.id, body).then(function () {
+          toast(t('tor.done.' + b.id), 2500); setTimeout(function () { self.load(); }, 500);
+        }).catch(function (e) { toast(e.message, 6000); });
+      }
+    };
+  }
 
   var Upcoming = ListScreen({
     titleKey: 'nav.upcoming', path: '/api/upcoming', emptyKey: 'up.empty',
@@ -691,15 +901,22 @@
   }
   function openDetail(card) { if (card && card.tmdb) pushOverlay(Detail(card)); }
 
+  // Trailer: embedded page served by the Cinema server (YouTube needs a real origin). OK = open in the YouTube app.
   function Trailer(youtubeId, title) {
     return {
       mount: function (el) {
-        el.innerHTML = '<div class="trailer"><iframe id="ytFrame" allow="autoplay; encrypted-media" frameborder="0" src="https://www.youtube.com/embed/' +
-          encodeURIComponent(youtubeId) + '?autoplay=1&rel=0&modestbranding=1&iv_load_policy=3&playsinline=1&hl=' + I18n.lang() + '"></iframe>' +
+        el.innerHTML = '<div class="trailer"><iframe id="ytFrame" allow="autoplay; encrypted-media; fullscreen" frameborder="0" src="' +
+          esc(U.API + '/trailer/' + encodeURIComponent(youtubeId)) + '"></iframe>' +
           '<div class="trailer-hint">' + esc(t('yt.close', { t: title })) + '</div></div>';
         setTimeout(function () { window.focus(); }, 300);   // keep remote keys in the app, not the iframe
       },
-      key: function () { return true; }
+      key: function (k) {
+        if (k === K.ENTER) {
+          toast(t('yt.opening'), 4000);
+          api('/api/trailer/youtube', { id: youtubeId }).catch(function (e) { toast(e.message, 6000); });
+        }
+        return true;
+      }
     };
   }
 
@@ -905,7 +1122,7 @@
     };
   }
 
-  var EP_CLS = { downloaded: 'library', downloading: 'downloading', missing: 'wanted', unaired: 'missing', unmonitored: 'missing' };
+  var EP_CLS = { downloaded: 'library', downloading: 'downloading', blocked: 'blocked', missing: 'wanted', unaired: 'missing', unmonitored: 'missing' };
   function Season(d, n) {
     return {
       data: null, zone: 'list', i: 0, a: 0, h: 0, timer: null,
@@ -934,6 +1151,7 @@
         if (!e) return [];
         var a = [];
         if (e.status === 'downloaded') a.push({ id: 'play', label: '▶  ' + t('title.watch'), primary: true });
+        if (e.status === 'blocked') a.push({ id: 'fixImport', label: t('season.fixImport'), primary: true });
         if (e.status === 'missing') a.push({ id: 'auto', label: t('season.searchAuto'), primary: true });
         if (e.status !== 'unaired') a.push({ id: 'pick', label: e.status === 'downloaded' ? t('season.change') : t('season.pick') });
         if (e.status === 'downloaded' && e.missingSubtitles && e.missingSubtitles.length) a.push({ id: 'subs', label: t('season.subs') });
@@ -964,6 +1182,8 @@
         }
         var file = e.file ? '<div class="ep-line"><b>' + t('season.file') + '</b> ' + esc([e.file.quality, bytes(e.file.size), e.file.releaseGroup, e.file.video].filter(Boolean).join(' · ')) + '</div>' +
           (e.file.audio && e.file.audio.length ? '<div class="ep-line"><b>' + t('season.audio') + '</b> ' + esc(e.file.audio.join(', ')) + '</div>' : '') : '';
+        var blocked = e.status === 'blocked' ? '<div class="ep-line"><b>' + t('ep.blocked') + '</b> <span class="rej">' +
+          esc(e.blockReason && e.blockReason !== 'other' && I18n.has('reason.' + e.blockReason) ? t('reason.' + e.blockReason) : (e.blockMessage || '')) + '</span></div>' : '';
         var prog = e.status === 'downloading' ? '<div class="ep-line"><b>' + t('season.download') + '</b> ' + (e.progress || 0) + '%' + (e.timeleft ? ' · ' + esc(t('season.left', { t: e.timeleft })) : '') +
           (e.downloadState ? ' · ' + esc(e.downloadState) : '') + '</div><div class="bar"><i data-w="' + (e.progress || 0) + '%"></i></div>' : '';
         var acts = this.actions(e).map(function (b, i) { return '<div class="btn' + (b.primary ? ' primary' : '') + '" data-a="' + i + '">' + esc(b.label) + '</div>'; }).join('');
@@ -971,7 +1191,7 @@
           '<h2>' + e.number + '. ' + esc(e.title) + '</h2>' +
           '<div class="meta"><span class="pill ' + EP_CLS[e.status] + '">' + t('ep.' + e.status) + '</span><span>' + (e.airDate ? (e.status === 'unaired' ? t('season.premieres', { d: fmtDate(e.airDate) }) : fmtDate(e.airDate)) : '') + '</span>' +
           (e.runtime ? '<span>' + t('common.min', { n: e.runtime }) + '</span>' : '') + '</div>' +
-          '<div class="overview">' + esc(e.overview || t('season.noOverview')) + '</div>' + file + subs + prog +
+          '<div class="overview">' + esc(e.overview || t('season.noOverview')) + '</div>' + file + subs + blocked + prog +
           '<div class="ep-actions">' + (acts || '<span class="hint">' + t('season.nothing') + '</span>') + '</div>';
       },
       focus: function () {
@@ -1011,6 +1231,18 @@
         var self = this, e = this.ep(), sid = this.data.seriesId;
         if (!b) return;
         if (b.id === 'play') return playEpisode(d, n, e.number, e.title);
+        if (b.id === 'fixImport') {
+          // same fix as Downloads → Needs attention, matched by the download id
+          return loadAttention(true).then(function (items) {
+            var it = items.filter(function (x) { return x.downloadId === e.downloadId; })[0];
+            if (!it) return toast(t('season.fixNone'), 6000);
+            if (!it.action) return toast(t('dl.resolveIn', { svc: 'Sonarr', msg: it.raw }), 8000);
+            if (self.armed !== e.downloadId) { self.armed = e.downloadId; return toast(t('common.pressOkAgain', { what: t('action.' + it.action).toLowerCase() }), 6000); }
+            self.armed = null; toast(t('dl.resolving'), 4000);
+            return api('/api/sync/resolve', { svc: it.svc, action: it.action, queueIds: it.queueIds, downloadId: it.downloadId, movieId: it.movieId, seriesId: it.seriesId })
+              .then(function () { toast(t('dl.done.' + it.action), 6000); setTimeout(function () { self.load(); }, 5000); });
+          }).catch(function (x) { toast(x.message, 6000); });
+        }
         if (b.id === 'pick') return pushOverlay(Releases(d, n, e.id, e.number + '. ' + e.title));
         if (b.id === 'seasonPick') return pushOverlay(Releases(d, n, null, t('title.season', { n: n })));
         var call = b.id === 'auto' ? api('/api/episode/search', { episodeId: e.id })

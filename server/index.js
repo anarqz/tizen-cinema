@@ -401,7 +401,7 @@ async function downloads() {
       const ui = await deluge('web.update_ui', [['name', 'progress', 'state', 'download_payload_rate', 'upload_payload_rate', 'eta', 'total_size', 'label', 'num_seeds', 'time_added'], {}]);
       out.torrents = Object.entries(ui.torrents || {}).map(([hash, t]) => ({ hash, ...t }))
         .sort((a, b) => (a.state === 'Downloading' ? -1 : 0) - (b.state === 'Downloading' ? -1 : 0) || b.time_added - a.time_added);
-      out.speed = { down: ui.stats && ui.stats.download_rate, up: ui.stats && ui.stats.upload_rate };
+      out.speed = { down: ui.stats && ui.stats.download_rate, up: ui.stats && ui.stats.upload_rate };   // external_ip intentionally dropped
     } catch (e) { out.errors.push(e.message); }
   }
   for (const svc of ['sonarr', 'radarr']) {
@@ -417,6 +417,78 @@ async function downloads() {
     } catch (e) { out.errors.push(e.message); }
   }
   return out;
+}
+
+// ── torrent client (Deluge) ─────────────────────────────────────────────────
+const LIST_FIELDS = ['name', 'state', 'progress', 'total_wanted', 'total_done', 'download_payload_rate', 'upload_payload_rate', 'eta',
+  'num_seeds', 'total_seeds', 'num_peers', 'total_peers', 'ratio', 'label', 'time_added', 'queue', 'message', 'tracker_host', 'max_download_speed'];
+const isHash = (h) => /^[a-f0-9]{40}$/i.test(h || '');
+
+function torrentRow(hash, t) {
+  return { hash, name: t.name, state: t.state, progress: Math.round((t.progress || 0) * 10) / 10, size: t.total_wanted, done: t.total_done,
+    down: t.download_payload_rate || 0, up: t.upload_payload_rate || 0, eta: t.eta > 0 ? t.eta : null,
+    seeds: t.num_seeds, seedsTotal: t.total_seeds, peers: t.num_peers, peersTotal: t.total_peers, ratio: t.ratio,
+    label: t.label || null, added: t.time_added, queue: t.queue, message: t.message !== 'OK' ? t.message : null,
+    tracker: t.tracker_host || null, limitDown: t.max_download_speed };
+}
+
+async function torrents() {
+  need(C().deluge.url, 'Deluge');
+  await delugeEnsureConnected();
+  const ui = await deluge('web.update_ui', [LIST_FIELDS, {}]);
+  const s = ui.stats || {};
+  // external_ip is deliberately not passed on.
+  return {
+    stats: { down: s.download_rate || 0, up: s.upload_rate || 0, connections: s.num_connections, dht: s.dht_nodes,
+             freeSpace: s.free_space, limitDown: s.max_download, limitUp: s.max_upload },
+    paused: Object.values(ui.torrents || {}).every((t) => t.state === 'Paused') && Object.keys(ui.torrents || {}).length > 0,
+    torrents: Object.entries(ui.torrents || {}).map(([h, t]) => torrentRow(h, t))
+      .sort((a, b) => (b.state === 'Downloading') - (a.state === 'Downloading') || (b.added || 0) - (a.added || 0)),
+  };
+}
+
+async function torrentDetail(hash) {
+  if (!isHash(hash)) throw new HttpError(400, 'Invalid torrent id');
+  await delugeEnsureConnected();
+  const t = await deluge('web.get_torrent_status', [hash, LIST_FIELDS.concat(['total_uploaded', 'all_time_download', 'seeding_time', 'active_time',
+    'completed_time', 'num_files', 'files', 'file_progress', 'file_priorities', 'peers', 'max_upload_speed', 'is_finished'])]);
+  if (!t || !t.name) throw new HttpError(404, 'Torrent not found');
+  return {
+    ...torrentRow(hash, t),
+    uploaded: t.total_uploaded, downloaded: t.all_time_download, seedingTime: t.seeding_time, activeTime: t.active_time,
+    completed: t.completed_time > 0 ? t.completed_time : null, limitUp: t.max_upload_speed, finished: t.is_finished,
+    files: (t.files || []).map((f, i) => ({ path: f.path, size: f.size, progress: Math.round(((t.file_progress || [])[i] || 0) * 1000) / 10,
+      skipped: (t.file_priorities || [])[i] === 0 })).sort((a, b) => b.size - a.size),
+    // peers: client, country and speeds only (no IP addresses)
+    peers: (t.peers || []).map((p) => ({ client: p.client, country: p.country, progress: Math.round((p.progress || 0) * 1000) / 10,
+      down: p.down_speed, up: p.up_speed, seed: !!p.seed })).sort((a, b) => (b.down + b.up) - (a.down + a.up)),
+  };
+}
+
+async function torrentAction(hash, action, body) {
+  if (!isHash(hash)) throw new HttpError(400, 'Invalid torrent id');
+  await delugeEnsureConnected();
+  const ids = [hash];
+  switch (action) {
+    case 'pause': await deluge('core.pause_torrents', [ids]); break;
+    case 'resume': await deluge('core.resume_torrents', [ids]); break;
+    case 'recheck': await deluge('core.force_recheck', [ids]); break;
+    case 'reannounce': await deluge('core.force_reannounce', [ids]); break;
+    case 'top': case 'up': case 'down': case 'bottom': await deluge('core.queue_' + action, [ids]); break;
+    case 'limit': await deluge('core.set_torrent_options', [ids, { max_download_speed: Number(body.down) > 0 ? Number(body.down) : -1 }]); break;
+    case 'remove': await deluge('core.remove_torrent', [hash, !!body.withData]); log('removed torrent', hash, body.withData ? '(with data)' : ''); break;
+    default: throw new HttpError(400, 'Unsupported action');
+  }
+  return { ok: true };
+}
+
+async function sessionAction({ action, down }) {
+  await delugeEnsureConnected();
+  if (action === 'pause') await deluge('core.pause_session');
+  else if (action === 'resume') await deluge('core.resume_session');
+  else if (action === 'limit') await deluge('core.set_config', [{ max_download_speed: Number(down) > 0 ? Number(down) : -1 }]);
+  else throw new HttpError(400, 'Unsupported action');
+  return { ok: true };
 }
 
 async function upcoming() {
@@ -473,7 +545,11 @@ async function season(tmdbId, n) {
       id: e.id, number: e.episodeNumber, title: t.name || e.title, overview: t.overview || e.overview || '',
       airDate: e.airDateUtc || null, runtime: t.runtime || e.runtime || null, monitored: e.monitored,
       still: t.still_path ? IMG + 'w780' + t.still_path : null,
-      status: e.hasFile ? 'downloaded' : dl ? 'downloading' : !aired ? 'unaired' : e.monitored ? 'missing' : 'unmonitored',
+      status: e.hasFile ? 'downloaded' : dl ? (/importBlocked|importPending|failedPending/.test(dl.trackedDownloadState || '') ? 'blocked' : 'downloading')
+        : !aired ? 'unaired' : e.monitored ? 'missing' : 'unmonitored',
+      blockReason: dl ? reasonCode(((dl.statusMessages || []).flatMap((m) => m.messages || []))[0] || '') : null,
+      blockMessage: dl ? (((dl.statusMessages || []).flatMap((m) => m.messages || []))[0] || null) : null,
+      downloadId: dl ? dl.downloadId : null,
       progress: dl && dl.size ? Math.round(100 * (1 - dl.sizeleft / dl.size)) : null,
       downloadState: dl ? (dl.trackedDownloadState || dl.status) : null, timeleft: dl ? dl.timeleft : null,
       file: f ? { quality: f.quality && f.quality.quality && f.quality.quality.name, size: f.size, releaseGroup: f.releaseGroup || null,
@@ -664,6 +740,26 @@ async function person(id) {
   });
 }
 
+
+// ── trailers ────────────────────────────────────────────────────────────────
+// YouTube refuses embeds from pages without a real origin (the TV app runs from local files),
+// so the embed is served from this server. Fallback: open it in the TV's YouTube app via DIAL.
+function trailerPage(id) {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="referrer" content="strict-origin-when-cross-origin">
+<style>html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden}iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}</style></head>
+<body><iframe src="https://www.youtube.com/embed/${id}?autoplay=1&rel=0&modestbranding=1&iv_load_policy=3&playsinline=1&controls=0"
+allow="autoplay; encrypted-media; fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe></body></html>`;
+}
+async function trailerOnTv(req, { id, tvIp }) {
+  if (!/^[\w-]{6,20}$/.test(id || '')) throw new HttpError(400, 'Invalid video id');
+  const ip = (tvIp || req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+  if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip)) throw new HttpError(400, 'Could not tell the TV address');
+  const r = await fetch(`http://${ip}:8080/ws/apps/YouTube`, { method: 'POST', body: `v=${id}`,
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' }, signal: AbortSignal.timeout(8000) });
+  if (r.status >= 400) throw new HttpError(502, `TV refused to open YouTube (${r.status})`);
+  return { ok: true };
+}
+
 // ── settings, status, public config ─────────────────────────────────────────
 function checkPin(req) {
   const pin = C().security.pin;
@@ -737,10 +833,15 @@ const routes = [
   ['POST', /^\/api\/subs\/download$/, body(subsDownload)],
   ['POST', /^\/api\/subs\/sync$/, body(subsSync)],
   ['GET', /^\/api\/downloads$/, () => downloads()],
+  ['GET', /^\/api\/torrents$/, () => torrents()],
+  ['POST', /^\/api\/torrents\/session$/, body(sessionAction)],
+  ['GET', /^\/api\/torrent\/([a-fA-F0-9]{40})$/, (m) => torrentDetail(m[1])],
+  ['POST', /^\/api\/torrent\/([a-fA-F0-9]{40})\/(\w+)$/, async (m, u, req) => torrentAction(m[1], m[2], await readBody(req))],
   ['GET', /^\/api\/upcoming$/, () => upcoming()],
   ['POST', /^\/api\/sync$/, () => syncNow()],
   ['GET', /^\/api\/sync\/attention$/, () => attention()],
   ['POST', /^\/api\/sync\/resolve$/, body(resolve)],
+  ['POST', /^\/api\/trailer\/youtube$/, async (m, u, req) => trailerOnTv(req, await readBody(req))],
 ];
 
 const WEB = path.join(__dirname, 'web');
@@ -748,6 +849,8 @@ http.createServer(async (req, res) => {
   const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type, X-Cinema-Pin', 'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS' };
   if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
   const u = new URL(req.url, 'http://x');
+  const tm = req.method === 'GET' && u.pathname.match(/^\/trailer\/([\w-]{6,20})$/);
+  if (tm) { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Referrer-Policy': 'strict-origin-when-cross-origin' }); return res.end(trailerPage(tm[1])); }
   if (req.method === 'GET' && (u.pathname === '/' || u.pathname === '/settings')) {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     return res.end(fs.readFileSync(path.join(WEB, 'settings.html')));

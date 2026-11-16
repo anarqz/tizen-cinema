@@ -8,7 +8,7 @@
       'common.loading': 'Loading…', 'common.error': 'Error: {msg}', 'common.back': 'Back', 'common.cancel': 'Cancel', 'common.save': 'Save',
       'common.show': 'Series', 'common.movie': 'Movie', 'common.min': '{n} min', 'common.years': '{n} years', 'common.pressOkAgain': 'Press OK again to {what}',
       'status.library': 'In library', 'status.downloading': 'Downloading', 'status.wanted': 'Monitored', 'status.missing': 'Not added',
-      'ep.downloaded': 'Downloaded', 'ep.downloading': 'Downloading', 'ep.missing': 'Missing', 'ep.unaired': 'Not aired', 'ep.unmonitored': 'Not monitored',
+      'ep.downloaded': 'Downloaded', 'ep.downloading': 'Downloading', 'ep.missing': 'Missing', 'ep.unaired': 'Not aired', 'ep.unmonitored': 'Not monitored', 'ep.blocked': 'Import blocked', 'season.fixImport': 'Fix import', 'season.fixNone': 'Nothing to fix right now — try Sync library in Downloads',
       'row.continue': 'Continue watching', 'row.trendingShows': 'Trending TV shows', 'row.trendingMovies': 'Trending movies',
       'row.watchedShows': 'Most watched shows this week', 'row.anticipatedShows': 'Most anticipated shows', 'row.popularMovies': 'Popular movies',
       'row.top10Shows': 'Top 10 shows today', 'row.top10Movies': 'Top 10 movies today', 'row.recentShows': 'Recently added', 'row.recentMovies': 'Recently added',
@@ -87,7 +87,20 @@
       'st.size.s': 'Small', 'st.size.m': 'Medium', 'st.size.l': 'Large', 'st.size.xl': 'Huge',
       'st.bg.none': 'None', 'st.bg.shadow': 'Shadow', 'st.bg.box': 'Black box', 'st.bg.band': 'Black band',
       'st.color.white': 'White', 'st.color.yellow': 'Yellow', 'st.pos.normal': 'Normal', 'st.pos.high': 'Higher', 'st.pos.top': 'Top',
-      'yt.close': '{t} · Back to close', 'ep.code': 'S{s}:E{e}', 'pl.dlBazarr': 'Downloading from {p} ({l})…', 'pl.dlRefresh': 'Asking Jellyfin to rescan the episode…', 'pl.dlWaiting': 'Waiting for Jellyfin to list the new subtitle…', 'pl.dlNoAdmin': 'This Jellyfin profile cannot rescan items (needs admin)'
+      'tor.pauseAll': 'Pause all', 'tor.resumeAll': 'Resume all', 'tor.limit': 'Limit {v}', 'tor.connections': '{n} connections', 'tor.free': '{s} free',
+      'tor.f.all': 'All', 'tor.f.downloading': 'Downloading', 'tor.f.seeding': 'Seeding', 'tor.f.paused': 'Paused', 'tor.f.error': 'Errors',
+      'tor.f.queue': 'Sonarr / Radarr queue', 'tor.f.attention': 'Needs attention', 'tor.empty': 'Nothing here',
+      'tor.eta': '{t} left', 'tor.seeds': 'seeds {a} ({b})', 'tor.peers': 'peers {a} ({b})', 'tor.ratio': 'ratio {r}',
+      'tor.state.Downloading': 'Downloading', 'tor.state.Seeding': 'Seeding', 'tor.state.Paused': 'Paused', 'tor.state.Error': 'Error',
+      'tor.state.Checking': 'Checking', 'tor.state.Queued': 'Queued', 'tor.state.Allocating': 'Allocating', 'tor.state.Moving': 'Moving',
+      'tor.pause': 'Pause', 'tor.resume': 'Resume', 'tor.recheck': 'Force recheck', 'tor.reannounce': 'Reannounce', 'tor.top': 'Top of queue',
+      'tor.remove': 'Remove', 'tor.removeData': 'Remove + files', 'tor.removed': 'Torrent removed', 'tor.paused': 'Paused', 'tor.resumed': 'Resumed',
+      'tor.done.pause': 'Paused', 'tor.done.resume': 'Resumed', 'tor.done.recheck': 'Checking files…', 'tor.done.reannounce': 'Reannounced to trackers',
+      'tor.done.top': 'Moved to the top of the queue', 'tor.done.limit': 'Download limit updated',
+      'tor.size': 'Size', 'tor.done': 'Downloaded', 'tor.speed': 'Speed', 'tor.etaL': 'Time left', 'tor.seedsL': 'Seeds', 'tor.peersL': 'Peers',
+      'tor.uploaded': 'Uploaded', 'tor.ratioL': 'Ratio', 'tor.seedTime': 'Seeding time', 'tor.added': 'Added', 'tor.tracker': 'Tracker', 'tor.queue': 'Queue',
+      'tor.files': 'Files ({n})', 'tor.peerList': 'Peers ({n})', 'tor.none': 'Nothing to show',
+      'yt.close': '{t} · OK: open in the YouTube app · Back: close', 'yt.opening': 'Opening in the YouTube app…', 'ep.code': 'S{s}:E{e}', 'pl.dlBazarr': 'Downloading from {p} ({l})…', 'pl.dlRefresh': 'Asking Jellyfin to rescan the episode…', 'pl.dlWaiting': 'Waiting for Jellyfin to list the new subtitle…', 'pl.dlNoAdmin': 'This Jellyfin profile cannot rescan items (needs admin)'
     },
     'pt-BR': {
       'nav.home': 'Início', 'nav.shows': 'Séries', 'nav.movies': 'Filmes', 'nav.search': 'Buscar', 'nav.downloads': 'Downloads',
@@ -95,7 +108,7 @@
       'common.loading': 'Carregando…', 'common.error': 'Erro: {msg}', 'common.back': 'Voltar', 'common.cancel': 'Cancelar', 'common.save': 'Salvar',
       'common.show': 'Série', 'common.movie': 'Filme', 'common.min': '{n} min', 'common.years': '{n} anos', 'common.pressOkAgain': 'OK de novo para {what}',
       'status.library': 'Na biblioteca', 'status.downloading': 'Baixando', 'status.wanted': 'Monitorado', 'status.missing': 'Não adicionado',
-      'ep.downloaded': 'Baixado', 'ep.downloading': 'Baixando', 'ep.missing': 'Faltando', 'ep.unaired': 'Não estreou', 'ep.unmonitored': 'Não monitorado',
+      'ep.downloaded': 'Baixado', 'ep.downloading': 'Baixando', 'ep.missing': 'Faltando', 'ep.unaired': 'Não estreou', 'ep.unmonitored': 'Não monitorado', 'ep.blocked': 'Importação bloqueada', 'season.fixImport': 'Corrigir importação', 'season.fixNone': 'Nada a corrigir agora — tente Sincronizar biblioteca em Downloads',
       'row.continue': 'Continuar assistindo', 'row.trendingShows': 'Séries em alta', 'row.trendingMovies': 'Filmes em alta',
       'row.watchedShows': 'Séries mais vistas da semana', 'row.anticipatedShows': 'Séries mais aguardadas', 'row.popularMovies': 'Filmes populares',
       'row.top10Shows': 'Top 10 séries hoje', 'row.top10Movies': 'Top 10 filmes hoje', 'row.recentShows': 'Adicionadas recentemente', 'row.recentMovies': 'Adicionados recentemente',
@@ -174,7 +187,20 @@
       'st.size.s': 'Pequeno', 'st.size.m': 'Médio', 'st.size.l': 'Grande', 'st.size.xl': 'Enorme',
       'st.bg.none': 'Nenhum', 'st.bg.shadow': 'Sombra', 'st.bg.box': 'Caixa preta', 'st.bg.band': 'Faixa preta',
       'st.color.white': 'Branca', 'st.color.yellow': 'Amarela', 'st.pos.normal': 'Normal', 'st.pos.high': 'Mais alta', 'st.pos.top': 'No topo',
-      'yt.close': '{t} · Voltar para fechar', 'ep.code': 'T{s}:E{e}', 'pl.dlBazarr': 'Baixando de {p} ({l})…', 'pl.dlRefresh': 'Pedindo ao Jellyfin para reescanear o episódio…', 'pl.dlWaiting': 'Aguardando o Jellyfin listar a nova legenda…', 'pl.dlNoAdmin': 'Este perfil do Jellyfin não pode reescanear itens (precisa ser admin)'
+      'tor.pauseAll': 'Pausar tudo', 'tor.resumeAll': 'Retomar tudo', 'tor.limit': 'Limite {v}', 'tor.connections': '{n} conexões', 'tor.free': '{s} livres',
+      'tor.f.all': 'Todos', 'tor.f.downloading': 'Baixando', 'tor.f.seeding': 'Semeando', 'tor.f.paused': 'Pausados', 'tor.f.error': 'Com erro',
+      'tor.f.queue': 'Fila Sonarr / Radarr', 'tor.f.attention': 'Precisa de atenção', 'tor.empty': 'Nada aqui',
+      'tor.eta': 'falta {t}', 'tor.seeds': 'seeds {a} ({b})', 'tor.peers': 'peers {a} ({b})', 'tor.ratio': 'proporção {r}',
+      'tor.state.Downloading': 'Baixando', 'tor.state.Seeding': 'Semeando', 'tor.state.Paused': 'Pausado', 'tor.state.Error': 'Erro',
+      'tor.state.Checking': 'Verificando', 'tor.state.Queued': 'Na fila', 'tor.state.Allocating': 'Alocando', 'tor.state.Moving': 'Movendo',
+      'tor.pause': 'Pausar', 'tor.resume': 'Retomar', 'tor.recheck': 'Verificar arquivos', 'tor.reannounce': 'Reanunciar', 'tor.top': 'Topo da fila',
+      'tor.remove': 'Remover', 'tor.removeData': 'Remover + arquivos', 'tor.removed': 'Torrent removido', 'tor.paused': 'Pausado', 'tor.resumed': 'Retomado',
+      'tor.done.pause': 'Pausado', 'tor.done.resume': 'Retomado', 'tor.done.recheck': 'Verificando arquivos…', 'tor.done.reannounce': 'Reanunciado aos rastreadores',
+      'tor.done.top': 'Movido para o topo da fila', 'tor.done.limit': 'Limite de download atualizado',
+      'tor.size': 'Tamanho', 'tor.done': 'Baixado', 'tor.speed': 'Velocidade', 'tor.etaL': 'Tempo restante', 'tor.seedsL': 'Seeds', 'tor.peersL': 'Peers',
+      'tor.uploaded': 'Enviado', 'tor.ratioL': 'Proporção', 'tor.seedTime': 'Tempo semeando', 'tor.added': 'Adicionado', 'tor.tracker': 'Rastreador', 'tor.queue': 'Fila',
+      'tor.files': 'Arquivos ({n})', 'tor.peerList': 'Peers ({n})', 'tor.none': 'Nada para mostrar',
+      'yt.close': '{t} · OK: abrir no app do YouTube · Voltar: fechar', 'yt.opening': 'Abrindo no app do YouTube…', 'ep.code': 'T{s}:E{e}', 'pl.dlBazarr': 'Baixando de {p} ({l})…', 'pl.dlRefresh': 'Pedindo ao Jellyfin para reescanear o episódio…', 'pl.dlWaiting': 'Aguardando o Jellyfin listar a nova legenda…', 'pl.dlNoAdmin': 'Este perfil do Jellyfin não pode reescanear itens (precisa ser admin)'
     }
   };
   var LANGS = [['pt-BR', 'Português (Brasil)'], ['en-US', 'English (US)']];
