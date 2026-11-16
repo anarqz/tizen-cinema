@@ -35,17 +35,12 @@ async function getJSON(url, opts = {}) {
   return text ? JSON.parse(text) : null;
 }
 
-const cache = new Map();
-async function cached(key, ttlMs, fn) {
-  const hit = cache.get(key);
-  if (hit && hit.until > Date.now()) return hit.value;
-  if (hit && hit.pending) return hit.pending;
-  const pending = fn().then((value) => { cache.set(key, { value, until: Date.now() + ttlMs }); return value; })
-    .catch((e) => { cache.delete(key); throw e; });
-  cache.set(key, { ...(hit || {}), pending, until: 0 });
-  return pending;
-}
-function clearCaches() { cache.clear(); }
+// Data from external services is kept on disk for a day and served stale while it refreshes;
+// only the live library state (Sonarr/Radarr) is memory-only.
+const store = require('./cache').create(config.DATA_DIR);
+const DAY = 24 * 3600e3;
+const cached = (key, ttlMs, fn, opts) => store.get(key, ttlMs, fn, opts);
+function clearCaches(all) { store.clear(all); }
 
 async function mapLimit(items, limit, fn) {
   const out = new Array(items.length); let i = 0;
@@ -79,7 +74,11 @@ const arr = (svc, p, opts = {}) => {
 // TMDB details in the metadata language, English fallback for empty overview/title.
 async function tmdbDetails(type, id) {
   const kind = type === 'show' ? 'tv' : 'movie';
-  return cached(`tmdb:${lang()}:${kind}:${id}`, 24 * 3600e3, async () => {
+  return cached(`tmdb:${lang()}:${kind}:${id}`, DAY, () => fetchDetails(type, id));
+}
+async function fetchDetails(type, id) {
+  const kind = type === 'show' ? 'tv' : 'movie';
+  {
     const d = await tmdb(`/${kind}/${id}`, { language: lang(),
       append_to_response: `external_ids,videos,credits,images,recommendations,${kind === 'tv' ? 'content_ratings' : 'release_dates'}`,
       include_image_language: `${lang2()},en,null`, include_video_language: `${lang2()},en,null` });
@@ -88,7 +87,7 @@ async function tmdbDetails(type, id) {
       d.overview = en.overview; if (!d.title && !d.name) { d.title = en.title; d.name = en.name; }
     }
     return d;
-  });
+  }
 }
 
 async function omdbRatings(imdbId) {
@@ -103,7 +102,7 @@ async function omdbRatings(imdbId) {
 
 // ── library state (Sonarr/Radarr), refreshed every minute ───────────────────
 async function library() {
-  return cached('library', 60e3, async () => {
+  return cached('library', 60e3, async () => {   // live: memory only, 1 minute
     const [series, movies, sq, rq] = await Promise.all([
       has('sonarr') ? arr('sonarr', '/api/v3/series') : [],
       has('radarr') ? arr('radarr', '/api/v3/movie') : [],
@@ -117,7 +116,7 @@ async function library() {
       dlSeries: new Set(sq.records.map((r) => r.seriesId)),
       dlMovies: new Set(rq.records.map((r) => r.movieId)),
     };
-  });
+  }, { persist: false });
 }
 
 function statusOf(lib, type, ids) {
@@ -163,13 +162,13 @@ async function withStatus(cards) {
 
 // Rows: { id, titleKey | title, kind?, items }. "watchers" lets the TV render "1.2k watching".
 async function traktRow(id, titleKey, p, type, withWatchers) {
-  const list = await cached(`trakt:${p}`, 3 * 3600e3, () => trakt(p));
+  const list = await cached(`trakt:${p}`, DAY, () => trakt(p));
   const cards = await mapLimit(list.slice(0, 20), 6, (x) => {
     const o = x.show || x.movie || x; const t = o.ids && o.ids.tmdb;
     if (!t) return null;
     return cardFromTmdb(type, t, { tvdb: o.ids.tvdb, imdb: o.ids.imdb, meta: withWatchers ? { watchers: x.watchers } : {} });
   });
-  return { id, titleKey, items: await withStatus(cards) };
+  return { id, titleKey, items: cards.filter(Boolean) };
 }
 
 const settle = (promises) => Promise.all(promises.map((p) => p.catch((e) => ({ error: e.message }))));
@@ -181,14 +180,21 @@ function finishRows(rows, top10Key) {
 }
 
 // ── home / browse ───────────────────────────────────────────────────────────
-async function home() {
-  return cached(`home:${lang()}`, 10 * 60e3, async () => finishRows(await settle([
+async function withStatusRows(snap) {
+  const lib = await library().catch(() => null);
+  if (!lib) return snap;
+  return { ...snap, rows: snap.rows.map((r) => ({ ...r, items: r.items.map((c) => ({ ...c, ...statusOf(lib, c.type, c) })) })) };
+}
+
+async function home() { return withStatusRows(await cached(`home:${lang()}`, DAY, buildHome)); }
+async function buildHome() {
+  return finishRows(await settle([
     traktRow('trending-shows', 'row.trendingShows', '/shows/trending?limit=20', 'show', true),
     traktRow('trending-movies', 'row.trendingMovies', '/movies/trending?limit=20', 'movie', true),
     traktRow('watched-shows', 'row.watchedShows', '/shows/watched/weekly?limit=20', 'show'),
     traktRow('anticipated-shows', 'row.anticipatedShows', '/shows/anticipated?limit=20', 'show'),
     traktRow('popular-movies', 'row.popularMovies', '/movies/popular?limit=20', 'movie'),
-  ]), 'row.top10Shows'));
+  ]), 'row.top10Shows');
 }
 
 const GENRES = { show: [80, 18, 35, 10765, 9648, 16, 99], movie: [28, 53, 35, 878, 27, 18, 16, 10749] };
@@ -202,10 +208,10 @@ async function genreNames(kind) {
 
 async function genreRow(type, id) {
   const kind = type === 'show' ? 'tv' : 'movie';
-  const [names, r] = await Promise.all([genreNames(kind), cached(`discover:${lang()}:${kind}:${id}`, 12 * 3600e3, () => tmdb(`/discover/${kind}`, {
+  const [names, r] = await Promise.all([genreNames(kind), cached(`discover:${lang()}:${kind}:${id}`, DAY, () => tmdb(`/discover/${kind}`, {
     language: lang(), with_genres: String(id), sort_by: 'popularity.desc', 'vote_count.gte': '300', include_adult: 'false' }))]);
   const cards = await mapLimit((r.results || []).filter((x) => x.backdrop_path).slice(0, 15), 6, (x) => cardFromTmdb(type, x.id));
-  return { id: `genre-${id}`, title: names.get(id) || String(id), items: await withStatus(cards) };
+  return { id: `genre-${id}`, title: names.get(id) || String(id), items: cards.filter(Boolean) };
 }
 
 async function recentlyAdded(type) {
@@ -218,33 +224,68 @@ async function recentlyAdded(type) {
     const byId = new Map(series.map((s) => [s.id, s]));
     const ids = order.filter((id) => byId.has(id)).concat(series.map((s) => s.id).filter((id) => !seen.has(id)));
     const cards = await mapLimit(ids.slice(0, 20).map((id) => byId.get(id)), 6, (s) => cardFromTmdb('show', s.tmdbId));
-    return { id: 'recent-shows', titleKey: 'row.recentShows', items: await withStatus(cards) };
+    return { id: 'recent-shows', titleKey: 'row.recentShows', items: cards.filter(Boolean) };
   }
   if (!has('radarr')) return null;
   const have = (await arr('radarr', '/api/v3/movie')).filter((m) => m.hasFile && m.tmdbId)
     .sort((a, b) => String((b.movieFile && b.movieFile.dateAdded) || b.added).localeCompare(String((a.movieFile && a.movieFile.dateAdded) || a.added)));
   const cards = await mapLimit(have.slice(0, 20), 6, (m) => cardFromTmdb('movie', m.tmdbId));
-  return { id: 'recent-movies', titleKey: 'row.recentMovies', items: await withStatus(cards) };
+  return { id: 'recent-movies', titleKey: 'row.recentMovies', items: cards.filter(Boolean) };
+}
+
+async function buildBrowse(type) {
+  const t = type === 'show';
+  const base = await settle([
+    traktRow(t ? 'trending-shows' : 'trending-movies', 'row.trendingNow', t ? '/shows/trending?limit=20' : '/movies/trending?limit=20', type, true),
+    traktRow(t ? 'watched-shows' : 'watched-movies', 'row.mostWatchedWeek', t ? '/shows/watched/weekly?limit=20' : '/movies/watched/weekly?limit=20', type),
+    traktRow(t ? 'anticipated-shows' : 'anticipated-movies', 'row.mostAnticipated', t ? '/shows/anticipated?limit=20' : '/movies/anticipated?limit=20', type),
+    ...(t ? [] : [traktRow('popular-movies', 'row.allTimePopular', '/movies/popular?limit=20', 'movie')]),
+  ]);
+  const genres = await settle(GENRES[type].map((id) => genreRow(type, id)));
+  const all = base.concat(genres);
+  return { rows: all.filter((r) => r && r.items && r.items.length), errors: all.filter((r) => r && r.error).map((r) => r.error) };
 }
 
 async function browse(type) {
-  return cached(`browse:${lang()}:${type}`, 10 * 60e3, async () => {
-    const t = type === 'show';
-    const base = await settle([
-      recentlyAdded(type),
-      traktRow(t ? 'trending-shows' : 'trending-movies', 'row.trendingNow', t ? '/shows/trending?limit=20' : '/movies/trending?limit=20', type, true),
-      traktRow(t ? 'watched-shows' : 'watched-movies', 'row.mostWatchedWeek', t ? '/shows/watched/weekly?limit=20' : '/movies/watched/weekly?limit=20', type),
-      traktRow(t ? 'anticipated-shows' : 'anticipated-movies', 'row.mostAnticipated', t ? '/shows/anticipated?limit=20' : '/movies/anticipated?limit=20', type),
-      ...(t ? [] : [traktRow('popular-movies', 'row.allTimePopular', '/movies/popular?limit=20', 'movie')]),
+  const [snap, recent] = await Promise.all([cached(`browse:${lang()}:${type}`, DAY, () => buildBrowse(type)),
+    // local library row: refreshed every 5 minutes in the background (served instantly meanwhile)
+    cached(`recent:${lang()}:${type}`, 5 * 60e3, () => recentlyAdded(type)).catch(() => null)]);
+  const out = finishRows([recent].concat(snap.rows), type === 'show' ? 'row.top10Shows' : 'row.top10Movies');
+  return withStatusRows({ rows: out.rows, errors: snap.errors });
+}
+
+// ── daily pre-fetch: page snapshots + every title on them (details, ratings) ─
+let lastWarm = null, warming = null;
+function warm(force) {
+  if (warming || !C().tmdb.token) return warming;
+  const t0 = Date.now();
+  warming = (async () => {
+    const snaps = await Promise.all([
+      cached(`home:${lang()}`, DAY, buildHome, { force }),
+      cached(`browse:${lang()}:show`, DAY, () => buildBrowse('show'), { force }),
+      cached(`browse:${lang()}:movie`, DAY, () => buildBrowse('movie'), { force }),
     ]);
-    const genres = await settle(GENRES[type].map((id) => genreRow(type, id)));
-    return finishRows(base.concat(genres), t ? 'row.top10Shows' : 'row.top10Movies');
-  });
+    await Promise.all(['show', 'movie'].map((t) => cached(`recent:${lang()}:${t}`, 5 * 60e3, () => recentlyAdded(t), { force }).catch(() => null)));
+    const titles = new Map();
+    snaps.forEach((s) => s.rows.forEach((r) => r.items.forEach((c) => titles.set(c.type + c.tmdb, c))));
+    await mapLimit([...titles.values()], 4, async (c) => {
+      if (force) await cached(`tmdb:${lang()}:${c.type === 'show' ? 'tv' : 'movie'}:${c.tmdb}`, DAY, () => fetchDetails(c.type, c.tmdb), { force: true });
+      if (c.imdb) await omdbRatings(c.imdb);
+    });
+    lastWarm = { at: new Date().toISOString(), titles: titles.size, seconds: Math.round((Date.now() - t0) / 1000), forced: !!force };
+    log('pre-fetch done', lastWarm);
+  })().catch((e) => log('pre-fetch failed', e.message)).finally(() => { warming = null; });
+  return warming;
+}
+function scheduleDaily(hour, fn) {
+  const next = new Date(); next.setHours(hour, 0, 0, 0);
+  if (next <= new Date()) next.setDate(next.getDate() + 1);
+  setTimeout(() => { fn(); setInterval(fn, DAY); }, next - new Date());
 }
 
 async function search(q) {
   if (!q || q.trim().length < 2) return { items: [] };
-  const r = await cached(`search:${lang()}:${q.toLowerCase()}`, 600e3, () => tmdb('/search/multi', { query: q, language: lang(), include_adult: 'false' }));
+  const r = await cached(`search:${lang()}:${q.toLowerCase()}`, DAY, () => tmdb('/search/multi', { query: q, language: lang(), include_adult: 'false' }));
   const hits = r.results.filter((x) => x.media_type === 'tv' || x.media_type === 'movie').slice(0, 20);
   const cards = await mapLimit(hits, 6, (x) => cardFromTmdb(x.media_type === 'tv' ? 'show' : 'movie', x.id));
   return { items: await withStatus(cards) };
@@ -321,7 +362,7 @@ async function pickProfile(svc) {
 
 async function add({ type, tmdb: tmdbId }) {
   const card = await cardFromTmdb(type, tmdbId);
-  cache.delete('library');
+  store.del('library');
   if (type === 'show') {
     if (!card.tvdb) throw new HttpError(422, 'This series has no TVDB id; Sonarr cannot add it', 'no_tvdb');
     const [found] = await arr('sonarr', `/api/v3/series/lookup?term=tvdb:${card.tvdb}`);
@@ -362,7 +403,7 @@ async function releases(type, tmdbId, seasonN, episodeId) {
 
 async function grab({ type, guid, indexerId }) {
   await arr(type === 'show' ? 'sonarr' : 'radarr', '/api/v3/release', { method: 'POST', body: JSON.stringify({ guid, indexerId }) });
-  cache.delete('library');
+  store.del('library');
   return { ok: true };
 }
 
@@ -517,7 +558,7 @@ async function seriesArrId(tmdbId) {
 }
 
 async function tmdbSeason(tmdbId, n) {
-  return cached(`tmdb:${lang()}:season:${tmdbId}:${n}`, 12 * 3600e3, async () => {
+  return cached(`tmdb:${lang()}:season:${tmdbId}:${n}`, DAY, async () => {
     const loc = await tmdb(`/tv/${tmdbId}/season/${n}`, { language: lang() }).catch(() => ({ episodes: [] }));
     if (lang() !== 'en-US' && (loc.episodes || []).some((e) => !e.overview)) {
       const en = await tmdb(`/tv/${tmdbId}/season/${n}`, { language: 'en-US' }).catch(() => ({ episodes: [] }));
@@ -649,7 +690,7 @@ async function syncNow() {
     const c = await arr(svc, '/api/v3/command', { method: 'POST', body: JSON.stringify({ name: 'RefreshMonitoredDownloads' }) }).catch((e) => ({ error: e.message }));
     out[svc] = c.error ? c.error : 'ok';
   }
-  clearCaches();
+  clearCaches(false); store.del(`recent:${lang()}:show`); store.del(`recent:${lang()}:movie`);
   return { ok: true, ...out };
 }
 
@@ -699,7 +740,7 @@ async function resolve({ svc, action, queueIds, downloadId, movieId, seriesId })
   if (action === 'rescan' && svc === 'sonarr') {
     // Sonarr re-reads the series folder and registers files already there; nothing is moved or deleted.
     await arr('sonarr', '/api/v3/command', { method: 'POST', body: JSON.stringify({ name: 'RescanSeries', seriesId: Number(seriesId) }) });
-    cache.delete('library');
+    store.del('library');
     return { ok: true };
   }
   if (action === 'import' && svc === 'radarr') {
@@ -708,7 +749,7 @@ async function resolve({ svc, action, queueIds, downloadId, movieId, seriesId })
       quality: f.quality, languages: f.languages, releaseGroup: f.releaseGroup, indexerFlags: f.indexerFlags || 0 }));
     if (!pick.length) throw new HttpError(404, 'No files to import');
     await arr('radarr', '/api/v3/command', { method: 'POST', body: JSON.stringify({ name: 'ManualImport', importMode: 'auto', files: pick }) });
-    cache.delete('library');
+    store.del('library');
     return { ok: true, files: pick.length };
   }
   throw new HttpError(400, 'Unsupported action');
@@ -811,10 +852,10 @@ function readBody(req) {
 }
 const body = (fn) => async (m, u, req) => fn(await readBody(req));
 const routes = [
-  ['GET', /^\/health$/, () => ({ ok: true, version: VERSION })],
+  ['GET', /^\/health$/, () => ({ ok: true, version: VERSION, cache: store.stats(), prefetch: lastWarm, prefetching: !!warming })],
   ['GET', /^\/api\/public$/, () => publicConfig()],
   ['GET', /^\/api\/settings$/, (m, u, req) => { checkPin(req); return { settings: config.masked(), pinRequired: !!C().security.pin }; }],
-  ['PUT', /^\/api\/settings$/, async (m, u, req) => { checkPin(req); config.update(await readBody(req)); clearCaches(); delugeCookie = null; return { ok: true, settings: config.masked() }; }],
+  ['PUT', /^\/api\/settings$/, async (m, u, req) => { checkPin(req); config.update(await readBody(req)); clearCaches(false); delugeCookie = null; warm(false); return { ok: true, settings: config.masked() }; }],
   ['GET', /^\/api\/settings\/status$/, () => status()],
   ['GET', /^\/api\/settings\/options$/, () => options()],
   ['GET', /^\/api\/home$/, () => home()],
@@ -879,4 +920,10 @@ http.createServer(async (req, res) => {
     }
   }
   res.writeHead(404, cors); res.end();
-}).listen(PORT, '0.0.0.0', () => log(`Cinema ${VERSION} listening on :${PORT} (data: ${config.DATA_DIR})`));
+}).listen(PORT, '0.0.0.0', () => {
+  log(`Cinema ${VERSION} listening on :${PORT} (data: ${config.DATA_DIR})`);
+  store.prune();
+  library().catch(() => {});                    // live library state ready before the first request
+  setTimeout(() => warm(false), 3000);          // fill whatever is missing or stale
+  scheduleDaily(4, () => warm(true));           // full refresh every day at 04:00
+});
