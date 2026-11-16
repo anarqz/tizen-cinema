@@ -440,3 +440,12 @@ html.playing #backdrop, html.playing body > .scrim, html.playing #rail, html.pla
 .rail-item.profile { display: block; height: 72px; line-height: 72px; white-space: nowrap; }
 .rail-item.profile .avatar { display: inline-block; vertical-align: middle; line-height: 52px; }
 .rail-item.profile span { display: inline-block; vertical-align: middle; line-height: 1.2; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+
+/* toasts must sit above the player (z-index 40) */
+.toast { z-index: 100; }
+/* subtitle download progress inside the player panel */
+.pl-dl { font-size: 24px; font-weight: 700; padding: 14px 20px; border-radius: 10px; margin-bottom: 18px; background: rgba(255,204,52,.14); color: var(--accent); }
+.pl-dl.done { background: rgba(47,191,113,.16); color: #2fbf71; }
+.pl-dl.error { background: rgba(255,91,74,.16); color: #ff8a7a; }
+.mini-ring { display: inline-block; width: 20px; height: 20px; margin-right: 12px; vertical-align: -3px; border-radius: 50%;
+  border: 3px solid rgba(255,204,52,.3); border-top-color: var(--accent); -webkit-animation: spin .9s linear infinite; animation: spin .9s linear infinite; }

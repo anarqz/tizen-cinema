@@ -87,7 +87,7 @@
       'st.size.s': 'Small', 'st.size.m': 'Medium', 'st.size.l': 'Large', 'st.size.xl': 'Huge',
       'st.bg.none': 'None', 'st.bg.shadow': 'Shadow', 'st.bg.box': 'Black box', 'st.bg.band': 'Black band',
       'st.color.white': 'White', 'st.color.yellow': 'Yellow', 'st.pos.normal': 'Normal', 'st.pos.high': 'Higher', 'st.pos.top': 'Top',
-      'yt.close': '{t} · Back to close', 'ep.code': 'S{s}:E{e}'
+      'yt.close': '{t} · Back to close', 'ep.code': 'S{s}:E{e}', 'pl.dlBazarr': 'Downloading from {p} ({l})…', 'pl.dlRefresh': 'Asking Jellyfin to rescan the episode…', 'pl.dlWaiting': 'Waiting for Jellyfin to list the new subtitle…', 'pl.dlNoAdmin': 'This Jellyfin profile cannot rescan items (needs admin)'
     },
     'pt-BR': {
       'nav.home': 'Início', 'nav.shows': 'Séries', 'nav.movies': 'Filmes', 'nav.search': 'Buscar', 'nav.downloads': 'Downloads',
@@ -174,7 +174,7 @@
       'st.size.s': 'Pequeno', 'st.size.m': 'Médio', 'st.size.l': 'Grande', 'st.size.xl': 'Enorme',
       'st.bg.none': 'Nenhum', 'st.bg.shadow': 'Sombra', 'st.bg.box': 'Caixa preta', 'st.bg.band': 'Faixa preta',
       'st.color.white': 'Branca', 'st.color.yellow': 'Amarela', 'st.pos.normal': 'Normal', 'st.pos.high': 'Mais alta', 'st.pos.top': 'No topo',
-      'yt.close': '{t} · Voltar para fechar', 'ep.code': 'T{s}:E{e}'
+      'yt.close': '{t} · Voltar para fechar', 'ep.code': 'T{s}:E{e}', 'pl.dlBazarr': 'Baixando de {p} ({l})…', 'pl.dlRefresh': 'Pedindo ao Jellyfin para reescanear o episódio…', 'pl.dlWaiting': 'Aguardando o Jellyfin listar a nova legenda…', 'pl.dlNoAdmin': 'Este perfil do Jellyfin não pode reescanear itens (precisa ser admin)'
     }
   };
   var LANGS = [['pt-BR', 'Português (Brasil)'], ['en-US', 'English (US)']];

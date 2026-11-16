@@ -453,7 +453,8 @@
     } else if (ui.panel === 'search') {
       el.className = 'pl-panel search';
       if (!candidates) { el.innerHTML = '<div class="pl-col-t">' + t('pl.searching') + '</div>'; return; }
-      el.innerHTML = '<div class="pl-col-t">' + t('pl.pick', { n: candidates.length }) + '</div><div class="pl-search-list" id="plSearchList">' +
+      var dl = ui.dl ? '<div class="pl-dl ' + ui.dl.status + '">' + (/^(downloading|refreshing|waiting)$/.test(ui.dl.status) ? '<i class="mini-ring"></i>' : ui.dl.status === 'done' ? '✓ ' : '✗ ') + esc(ui.dl.msg) + '</div>' : '';
+      el.innerHTML = dl + '<div class="pl-col-t">' + t('pl.pick', { n: candidates.length }) + '</div><div class="pl-search-list" id="plSearchList">' +
         (candidates.length ? candidates.map(function (c, i) {
           return '<div class="pl-cand' + (ui.searchRow === i ? ' focus' : '') + '"><span class="sc">' + (c.score || 0) + '</span><span class="lg">' + esc(c.language || '') +
             (c.hi ? ' · CC' : '') + '</span><span class="rl">' + esc(c.release || '') + '</span><span class="pv">' + esc(c.provider) + '</span></div>';
@@ -517,7 +518,7 @@
     else if (it.kind === 'delay0') { subs.offset = 0; subs.ptr = 0; drawPanel(); }
     else if (it.kind === 'search') {
       if (!ctx.tmdb) return U.toast(t('pl.noRef'), 5000);
-      candidates = null; ui.searchRow = 0; ui.panel = 'search'; drawPanel();
+      candidates = null; ui.dl = null; ui.searchRow = 0; ui.panel = 'search'; drawPanel();
       U.api('/api/subs/candidates?' + qsOf(subContext())).then(function (r) { candidates = r.items; if (ui.panel === 'search') drawPanel(); })
         .catch(function (e) { U.toast(e.message, 6000); ui.panel = 'tracks'; drawPanel(); });
     } else if (it.kind === 'sync') syncCurrent();
@@ -534,23 +535,40 @@
     }).catch(function (e) { U.toast(t('pl.syncFail', { msg: e.message }), 7000); });
   }
 
+  // Download a provider subtitle through Bazarr, make Jellyfin pick up the new file, then switch to it.
+  // Progress is shown inside the panel (ui.dl) because this takes 10–40 s.
+  function setDl(status, msg) { ui.dl = { status: status, msg: msg || '' }; if (ui.panel === 'search') drawPanel(); }
   function downloadCandidate(c) {
-    U.toast(t('pl.downloading', { l: c.language || '', p: c.provider }), 30000);
+    if (ui.dl && /^(downloading|refreshing|waiting)$/.test(ui.dl.status)) return;
     var body = subContext(); body.candidate = c;
     var before = textSubs().map(function (s) { return s.Index; });
+    setDl('downloading', t('pl.dlBazarr', { l: c.language || '', p: c.provider }));
     U.api('/api/subs/download', body).then(function () {
-      U.toast(t('pl.refreshing'), 15000);
-      return JF.refreshItem(ctx.itemId);
+      setDl('refreshing', t('pl.dlRefresh'));
+      return JF.refreshItem(ctx.itemId).catch(function (e) {
+        if (/403/.test(e.message)) throw new Error(t('pl.dlNoAdmin'));
+        throw e;
+      });
     }).then(function () {
-      return new Promise(function (r) { setTimeout(r, 6000); });
-    }).then(function () { return JF.item(ctx.itemId); }).then(function (it) {
-      item = it; info.streams = it.MediaStreams || info.streams;
-      var fresh = textSubs().filter(function (s) { return before.indexOf(s.Index) === -1 && s.IsExternal; });
-      var pick = fresh[0] || textSubs().filter(function (s) { return s.IsExternal && bazarrCode(s.Language) === (c.languageCode || ''); })[0];
-      if (pick) { setSubtitle(pick.Index); U.toast(t('pl.subOn'), 3000); }
-      else U.toast(t('pl.notListed'), 6000);
-      ui.panel = 'tracks'; drawPanel();
-    }).catch(function (e) { U.toast(t('pl.failed', { msg: e.message }), 7000); });
+      setDl('waiting', t('pl.dlWaiting'));
+      var started = Date.now();
+      return new Promise(function (resolve, reject) {
+        (function poll() {
+          JF.item(ctx.itemId).then(function (it) {
+            var subsNow = (it.MediaStreams || []).filter(function (x) { return x.Type === 'Subtitle'; });
+            var fresh = subsNow.filter(function (x) { return x.IsExternal && before.indexOf(x.Index) === -1; });
+            if (fresh.length) { item = it; info.streams = it.MediaStreams; return resolve(fresh[0]); }
+            if (Date.now() - started > 45000) return reject(new Error(t('pl.notListed')));
+            setTimeout(poll, 3000);
+          }).catch(reject);
+        })();
+      });
+    }).then(function (sub) {
+      return setSubtitle(sub.Index).then(function () {
+        setDl('done', t('pl.subOn'));
+        setTimeout(function () { ui.dl = null; if (ui.panel === 'search') { ui.panel = 'tracks'; drawPanel(); } }, 1800);
+      });
+    }).catch(function (e) { setDl('error', t('pl.failed', { msg: e.message })); });
   }
 
   // ── keys ───────────────────────────────────────────────────────────────────
