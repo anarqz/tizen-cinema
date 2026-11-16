@@ -506,6 +506,7 @@
   function nextLimit(v) { var i = LIMITS.indexOf(v > 0 ? v : -1); return LIMITS[(i + 1) % LIMITS.length]; }
   var TSTATE = { Downloading: ['dl', '▼'], Seeding: ['seed', '▲'], Paused: ['paused', '❚❚'], Error: ['err', '!'], Checking: ['check', '⟳'],
                  Queued: ['queued', '⋯'], Allocating: ['check', '⟳'], Moving: ['check', '⇢'] };
+  function speed(v) { return v > 0 ? bytes(v) + '/s' : '0 B/s'; }
   function tCls(s) { return (TSTATE[s] || ['queued'])[0]; }
   function tIcon(s) { return (TSTATE[s] || ['', '•'])[1]; }
   function tStateLabel(s) { return I18n.has('tor.state.' + s) ? t('tor.state.' + s) : s; }
@@ -686,12 +687,12 @@
           { id: 'top', label: '⤒  ' + t('tor.top') }, { id: 'limit', label: '↓  ' + t('tor.limit', { v: limitLabel(d.limitDown) }) },
           { id: 'remove', label: t('tor.remove'), danger: true }, { id: 'removeData', label: t('tor.removeData'), danger: true }];
       },
-      list: function () { return this.tab === 0 ? this.d.files : this.d.peers; },
+      list: function () { return this.tab === 0 ? this.d.files : this.d.peerList; },
       draw: function () {
         var d = this.d, self = this, cls = tCls(d.state);
         var facts = [
           [t('tor.size'), bytes(d.size)], [t('tor.done'), bytes(d.done) + ' (' + I18n.num(d.progress, 1) + '%)'],
-          [t('tor.speed'), '↓ ' + bytes(d.down) + '/s   ↑ ' + bytes(d.up) + '/s'], [t('tor.etaL'), d.eta ? duration(d.eta) : '—'],
+          [t('tor.speed'), '↓ ' + speed(d.down) + '   ↑ ' + speed(d.up)], [t('tor.etaL'), d.eta ? duration(d.eta) : '—'],
           [t('tor.seedsL'), (d.seeds || 0) + ' (' + Math.max(0, d.seedsTotal || 0) + ')'], [t('tor.peersL'), (d.peers || 0) + ' (' + Math.max(0, d.peersTotal || 0) + ')'],
           [t('tor.uploaded'), bytes(d.uploaded)], [t('tor.ratioL'), I18n.num(d.ratio > 0 ? d.ratio : 0, 2)],
           [t('tor.seedTime'), duration(d.seedingTime) || '—'], [t('tor.added'), d.added ? fmtDate(new Date(d.added * 1000).toISOString()) : '—'],
@@ -700,7 +701,7 @@
         var acts = this.actions().map(function (b, n) {
           return '<div class="btn small' + (b.danger ? ' danger' : '') + (self.zone === 'act' && n === self.a ? ' focus' : '') + '">' + esc(b.label) + '</div>';
         }).join('');
-        var tabs = [t('tor.files', { n: d.files.length }), t('tor.peerList', { n: d.peers.length })].map(function (l, n) {
+        var tabs = [t('tor.files', { n: d.files.length }), t('tor.peerList', { n: d.peerList.length })].map(function (l, n) {
           return '<div class="chip' + (n === self.tab ? ' on' : '') + (self.zone === 'tab' && n === self.tab ? ' focus' : '') + '">' + esc(l) + '</div>';
         }).join('');
         var rows = this.tab === 0
@@ -708,9 +709,9 @@
               return '<div class="li slim' + (f.skipped ? ' dim' : '') + '"><div class="grow"><div class="t">' + esc(f.path.split('/').pop()) + '</div>' +
                 '<div class="bar ' + cls + '"><i data-w="' + f.progress + '%"></i></div></div><div class="r">' + bytes(f.size) + '<br>' + I18n.num(f.progress, 0) + '%</div></div>';
             }).join('')
-          : d.peers.map(function (p) {
+          : d.peerList.map(function (p) {
               return '<div class="li slim"><div class="grow"><div class="t">' + esc((p.country ? p.country + ' · ' : '') + (p.client || '?')) + (p.seed ? ' · seed' : '') + '</div>' +
-                '<div class="bar ' + cls + '"><i data-w="' + p.progress + '%"></i></div></div><div class="r">↓ ' + bytes(p.down) + '/s<br>↑ ' + bytes(p.up) + '/s</div></div>';
+                '<div class="bar ' + cls + '"><i data-w="' + p.progress + '%"></i></div></div><div class="r">↓ ' + speed(p.down) + '<br>↑ ' + speed(p.up) + '</div></div>';
             }).join('');
         this.el.innerHTML = '<div class="page-title tor-title">' + esc(d.name) + '</div>' +
           '<div class="page-sub"><span class="ticon inline ' + cls + '">' + tIcon(d.state) + '</span> ' + esc(tStateLabel(d.state)) + (d.label ? ' · ' + esc(d.label) : '') +
