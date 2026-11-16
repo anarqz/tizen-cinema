@@ -546,10 +546,17 @@
       var cols = trackCols();
       el.className = 'pl-panel tracks';
       el.innerHTML = cols.map(function (c, ci) {
-        return '<div class="pl-col"><div class="pl-col-t">' + esc(c.title) + '</div>' + c.items.map(function (it, ri) {
-          return '<div class="pl-opt' + (it.on ? ' on' : '') + (ui.col === ci && ui.row[ci] === ri ? ' focus' : '') + '">' + (it.on ? '✓ ' : '') + esc(it.label) + '</div>';
-        }).join('') + '</div>';
+        return '<div class="pl-col"><div class="pl-col-t">' + esc(c.title) + '</div><div class="pl-col-list">' + c.items.map(function (it, ri) {
+          return '<div class="pl-opt' + (it.on ? ' on' : '') + (ui.col === ci && ui.row[ci] === ri ? ' focus' : '') + (ui.row[ci] === ri ? ' cur' : '') + '">' +
+            (it.on ? '✓ ' : '') + esc(it.label) + '</div>';
+        }).join('') + '</div></div>';
       }).join('');
+      // long lists (many subtitle tracks) scroll so the highlighted row stays visible
+      var lists = el.querySelectorAll('.pl-col-list');
+      for (var li = 0; li < lists.length; li++) {
+        var cur = lists[li].querySelector('.pl-opt.cur');
+        lists[li].scrollTop = cur ? Math.max(0, cur.offsetTop - 140) : 0;
+      }
     } else if (ui.panel === 'style') {
       el.className = 'pl-panel style';
       el.innerHTML = '<div class="pl-col-t">' + t('pl.style') + '</div>' + STYLE_OPTS.map(function (o, ri) {

@@ -324,6 +324,7 @@ html.playing #backdrop, html.playing body > .scrim, html.playing #rail, html.pla
   background: linear-gradient(0deg, rgba(8,8,12,.97) 75%, rgba(8,8,12,.85)); }
 .pl-panel.tracks { display: flex; }
 .pl-col { flex: 1; min-width: 0; margin-right: 40px; }
+.pl-col-list { position: relative; height: 400px; overflow: hidden; padding: 6px 8px; margin: -6px -8px; }
 .pl-col-t { font-size: 22px; font-weight: 800; color: rgba(255,255,255,.5); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 18px; }
 .pl-opt { font-size: 24px; padding: 12px 18px; border-radius: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: rgba(255,255,255,.8); }
 .pl-opt.on { color: #fff; font-weight: 700; }
